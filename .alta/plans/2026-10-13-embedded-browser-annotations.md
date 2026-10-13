@@ -199,6 +199,7 @@ Facts found on the way:
 - The address and the title of an annotation are the ones the host knows, not what the page says.
 - A click inside a browser view, for a check: post `WM_LBUTTONDOWN`/`WM_LBUTTONUP` to its `Chrome_RenderWidgetHostHWND`.
 
+Rebased on `main` (`301b0b5c`) on 2026-10-13, with two conflicts in the parameter lists of `SessionWorkspace` and `OwnedSessionPanel`. The whole runs after it found a defect of this branch: the row around the conversation (`.session-pane-row`) was laid out by the stylesheet of the browser feature, so a page that loads the shell's stylesheet alone, as the window fixtures of the tests do, had a timeline without height (`timelineKeyboard.browser.test.ts` and `sessionSingleTab.browser.test.ts`, new on `main`, failed here and passed on `main`). Fixed in `57b3f6ee`: the row is laid out by `style.css`. **Whole runs after the fix, with nothing else running: .NET 7253 passed, 40 skipped, 0 failed; `npm test` 1616 of 1616.**
 Still to check: `browser_handle_dialog` racing the user; the light theme and a narrow window for the new parts (covered by a browser test at 338 pixels); a 150% display; two sessions side by side; Add to prompt with a model that takes images.
 ### Phase 4: After the first version
 
