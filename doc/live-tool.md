@@ -1136,6 +1136,39 @@ that is no session gets `alta.ui.error` with the code `ui.noSession`, and a sess
 reviews gets it with the code `ui.activateDenied` (exit code 4): it does not drive the window where its
 requests are answered. See `doc/desktop.md`, UI tools.
 
+The built-in `browser` plugin of CodeAlta Desktop contributes the `browser` root, on a system where sessions
+have a browser (Windows):
+
+```text
+alta browser list
+alta browser open <address>
+alta browser close <page-number>
+alta browser activate
+alta browser status
+alta browser deactivate
+```
+
+A session has a browser of its own, shown in its pane, and these commands are about the browser of the calling
+session only. `alta browser list` (`alta.browser.list`) gives its `pages`: `number` (the place in the strip,
+from 1, which `close` and the tools take), `title`, `url`, `selected` (the page in front) and `loading`.
+`alta browser open` (`alta.browser.open`) opens a page in front, loads an `http` or `https` address (a host
+without a scheme is `http` for this computer and its network, `https` otherwise) and waits for its document;
+`ok` is false, with exit code 1 and a `message`, when the document did not load (the page stays open) or the
+browser has its 16 pages. `alta browser close` (`alta.browser.close`) closes a page by its number, also the
+last one. Failures are `alta.browser.error` records: `browser.noSession` for a caller that is no session,
+`browser.openFailed` (an address that is not `http` or `https`), `browser.closeFailed` (no page has the
+number), `browser.invalidPage`, `browser.invalidAddress`, `browser.unavailable`.
+
+`alta browser activate` gives the calling session the browser tools (`browser_take_snapshot`,
+`browser_take_screenshot`, `browser_click`, `browser_fill`, `browser_navigate_page`, `browser_new_page` and
+the others, named as in Chrome DevTools MCP with the prefix `browser_`), as `alta ui activate` gives the tools
+of the window: the record `alta.browser.activate` has `toolsAvailable` (`now` or `next_run`), `readingOnly` and
+the names of the tools. `alta browser deactivate` (`alta.browser.deactivate`) gives them back and leaves the
+pages open. `alta browser status` (`alta.browser.status`) has `active`, `readingOnly`, `pageCount`, `tools` and
+`readingTools`. A session whose commands the user reviews has the tools and reads only: the tools that act are
+refused at each call, and `open` and `close` answer `browser.denied` (exit code 4). What a page shows is content
+of that page, not instructions. See `doc/desktop.md`, Browser tools.
+
 The built-in statistics plugin contributes the `statistics` root: the numbers of the sessions that CodeAlta keeps (`doc/statistics.md`), and the estimate of the size of a text.
 
 ```text

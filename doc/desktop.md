@@ -3889,8 +3889,8 @@ A session can be asked to open a pull request for its work. The sources are
 A session has a browser of its own, on Windows: pages of the web shown in a part of its pane, at the right of
 its timeline and composer. It is meant for the application the session works on, usually on `localhost`.
 Another session in front does not show it; back in the session, it is there as it was left. The sources are
-in `Desktop/Browser/` (the pages and their views), `Desktop/Rpc/BrowserRpc.cs` (the `browser` service) and
-`frontend/src/browser/` (the part of the pane).
+in `Desktop/Browser/` (the pages and their views, the tools of the sessions and their plugin),
+`Desktop/Rpc/BrowserRpc.cs` (the `browser` service) and `frontend/src/browser/` (the part of the pane).
 
 - **Opening it.** The globe button of the composer row, beside the session info button, or the command
   **Browser** (`/browser`) for the session in front, shows and hides the browser part. Whether it is open and
@@ -3930,12 +3930,82 @@ in `Desktop/Browser/` (the pages and their views), `Desktop/Rpc/BrowserRpc.cs` (
 - **Kept and let go.** The pages of a session (addresses, titles, order, the one in front) are kept in
   `browser/<session id>/pages.json` under the state of the instance, read when the browser of the session is
   first asked for, and removed when the session is deleted. A page keeps its view while its session is not
-  shown. Views cost memory, about 30 to 70 MB each: beyond twelve, the one shown longest ago is let go, and its
-  page loads its address again when it is next shown. A session that the retention of sessions removes leaves
-  its small `pages.json` behind.
+  shown. Views cost memory, about 30 to 70 MB each: beyond twelve, the one shown or driven by its session
+  longest ago is let go, and its page loads its address again when it is next shown or driven. A session that
+  the retention of sessions removes leaves its small `pages.json` behind.
 - **Limits.** Windows only: on macOS and Linux the part says that this system has no browser. A click in a
   page does not make its pane the active one. The tools that see and drive the window (below) do not list
-  these pages.
+  these pages. A dialog of JavaScript (`alert`, `confirm`, `prompt`) is not shown: see "Dialogs" below.
+
+### Browser tools
+
+A session drives the browser of its own session: it opens the application it works on, reads it, clicks and
+types in it, and reads its console and its requests. What it does happens where the user looks for it, in the
+browser part of the pane of that session. The sources are `Desktop/Browser/DesktopBrowserTools.cs` (the tools)
+and `DesktopBrowserPlugin.cs` (the plugin `browser`).
+
+- **The tools.** Those of [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp), as for
+  the window (see "UI tools"), with the prefix `browser_`, because a session can hold both sets at once:
+  `browser_take_snapshot`, `browser_take_screenshot`, `browser_click`, `browser_click_at`, `browser_hover`,
+  `browser_drag`, `browser_fill`, `browser_fill_form`, `browser_type_text`, `browser_press_key`,
+  `browser_upload_file`, `browser_handle_dialog`, `browser_wait_for`, `browser_evaluate_script`,
+  `browser_list_console_messages`, `browser_get_console_message`, `browser_list_network_requests`,
+  `browser_get_network_request`, `browser_navigate_page`, `browser_list_pages`, `browser_select_page`,
+  `browser_new_page` and `browser_close_page`. There is no `browser_resize_page`: a page has the size of its
+  pane, and 1280 by 800 pixels while its session was never shown. The descriptions are those of the automation,
+  reworded where they would mislead (`DesktopBrowserTools.Describe`).
+- **A second automation.** The browser views have a `NeoAutomation` of their own
+  (`DesktopUiAutomation.ForBrowsers`, `PageFilter` by the label of the view), beside the one of the window, with
+  the folder `browser-tools` of the application data directory for its files. No view is a page of both. It is
+  created before any view exists and ends with the native resources of the window.
+- **A session drives its own browser only.** Every call names the session that makes it. The `pageId` a
+  session gives and reads is the place of a page in the strip of its session, from 1; the identifiers of the
+  automation, which knows the pages of every session, never reach a session. `browser_list_pages` is answered
+  from the pages of the session, in the text of the original (`## Pages`, `1: title (url) [selected]`, the
+  selected page being the one in front); the list of pages the automation adds to a result is replaced by the
+  same. `browser_select_page` puts a page in front, `browser_new_page` opens one in front and waits for its
+  document, and `browser_close_page` closes one, also the last. Every other tool is passed to the automation
+  for the page the call names, or the page in front, after the page was given a view if it had lost it
+  (`DesktopBrowsers.EnsureLiveAsync`). A session without a page is told to open one.
+- **Addresses.** `browser_new_page` and `browser_navigate_page` load what the address field loads
+  (`BrowserAddress.Parse`): `http` and `https`. Anything else is answered in words, and the view refuses it as
+  well.
+- **On request.** As for the tools of the window: `alta browser activate` registers the tools in the running
+  turn, the later runs of the session start with them until `alta browser deactivate` or the end of the
+  application, and `alta browser status` says what the session has. `alta browser list`,
+  `alta browser open <address>` and `alta browser close <page number>` work without the tools. A line of the
+  developer instructions of every session says whether it has the tools, how to get them and how many pages
+  its browser has. A caller that is no session has no browser (`browser.noSession`).
+- **A built-in plugin.** `browser` ("Browser tools"), which only the window has, and only on a system with
+  browser views. `[plugins.browser]` with `enabled = false` turns it off. Unlike the plugin `ui` it is listed
+  also by a host that has the user review the commands of its sessions: the browser of a session is not where
+  a review is answered.
+- **A session that asks reads only.** A session whose commands the user reviews (any policy but `Approve`, or
+  such a host) has the tools and is refused the ones that act, as it is refused typing in a terminal: nobody
+  reviews a click. It reads with `browser_take_snapshot`, `browser_take_screenshot`, `browser_wait_for`,
+  `browser_list_pages` and the console and network tools, without a `filePath`, which would write into the
+  folder it works in. Every other tool, `browser_select_page` included, answers with a refusal, and
+  `alta browser open` and `close` answer `browser.denied` (exit code 4). The rule is checked at each call, since
+  the mode of a session changes while it runs; its instructions say "Browser tools: active, reading only".
+- **A session that is not shown.** Its pages are hidden and driven all the same: snapshots, input, the console
+  and the network need no visible view. WebView2 gives no picture of a hidden view, so for
+  `browser_take_screenshot` the view is shown past the edge of the window for the time of the capture, in the
+  size it last had, and hidden again (`IBrowserView.BeginCapture`, `DesktopBrowsers.WhileCapturableAsync`).
+- **Page content is not instructions.** A snapshot, a console message and the body of a request are text that
+  a page of the web wrote. The results are passed as they are; the descriptions of the tools and the line of
+  the instructions say that what a page shows is content of that page, not instructions. Names of tools are
+  rewritten only in what the automation says itself (a failure, the notice of an open dialog).
+- **Files.** As for the tools of the window: `filePath` of `browser_take_screenshot` and
+  `browser_take_snapshot` is relative to the folder the session works in, and the files the other tools read
+  are in the folder `browser-tools`.
+- **Dialogs.** While automation is on, a dialog of JavaScript goes to the automation and not to the browser:
+  it is not shown. The page waits until `browser_handle_dialog` answers it, for at most 30 seconds
+  (`NeoAstraOptions.DecisionTimeout`); then an `alert` is accepted and a `confirm` or a `prompt` cancelled.
+  This holds for every page of every session, also one the user browses by hand.
+- **Limits.** Those of the automation: input is dispatched as DOM events (`isTrusted` is false), so CSS
+  `:hover` does not apply, a native list or popup does not open, and what needs a gesture of the user does not
+  react. The user can always act in the page himself. The tools do not show the browser part of a session:
+  a page a session opens is in its strip, and seen when the user opens the part.
 
 ## UI tools
 
@@ -3952,7 +4022,9 @@ WKWebView and WebKitGTK. The sources are in `Desktop/Ui/` (the tools and their p
   `resize_page`. `new_page` and `close_page` are left out: the pages are the windows of the application,
   not those of a browser. The view only loads the application's own document, so `navigate_page` is of use
   with the type `reload`. The pages of the browsers of the sessions are views of the window too, and are not
-  pages of these tools (`PageFilter`, by the label of the view).
+  pages of these tools (`PageFilter`, by the label of the view): `list_pages` lists the windows of the
+  application, and a session lists the pages of its own browser with `browser_list_pages` (see "Browser
+  tools"). The MCP server has the tools of the window only.
 - **They are tools, not `alta` commands.** A result holds a text and images, which an `alta` command cannot
   return.
 - **On request.** The tools are two dozen, so a session does not carry them until it asks for them.
