@@ -165,11 +165,21 @@ Facts found on the way:
 - A view reports the end of a navigation, not a new title or address: the views are asked what they show every 400 ms.
 ### Phase 2: Agent control
 
-- [ ] 2.1 The browser automation, the `browser_` tools limited to the pages of the calling session, file staging. Tests after `DesktopUiToolsTests`, with one that a session cannot list or address the page of another.
-- [ ] 2.2 Built-in plugin `browser`: `alta browser activate|deactivate|status|list|open|close|show` (`show` brings the session and its browser to the front), the instruction line, the reviewed-session rule. Tests after `AltaTerminalCommandsTests`; TUI build and tests stay green (the service is not registered there).
-- [ ] 2.3 Timeline: screenshots as **Image read** cards, as for the UI tools; tool call titles.
-- [ ] 2.4 A session of the developer instance opens `http://localhost` of a sample page, snapshots, clicks and reads the console.
+Host side committed as `70b611b8` and `38c2d49a` (doc) by a child session: 66 focused tests pass; the whole .NET run had 7236 passed, 40 skipped and one failure outside this work (`AgentToolsTests.ShellCommandTool_TimesOutWhileShellIsStillRunning`, a temporary folder still in use at cleanup, which passed when run again alone). **Nothing of phase 2 was run in a window yet.**
 
+- [x] 2.1 The browser automation (`DesktopUiAutomation.ForBrowsers`), the `browser_` tools limited to the pages of the calling session (`DesktopBrowserTools`), file staging. Tests: `DesktopBrowserToolsTests`.
+- [x] 2.2 Built-in plugin `browser` (`DesktopBrowserPlugin`): `alta browser activate|deactivate|status|list|open|close`, the instruction line, the reviewed-session rule. Tests: `DesktopBrowserPluginTests`. **Not built: `alta browser show`** (it needs the page of the application to bring a session and its browser part to the front).
+- [ ] 2.3 Timeline: screenshots as **Image read** cards, as for the UI tools; tool call titles. Not looked at yet.
+- [ ] 2.4 Verify in the developer instance: a session activates the tools, opens a page, snapshots, clicks, reads the console; a screenshot of a session that is not shown; two sessions list their own pages only; a reviewed session reads only; a clean exit with both automations. **Blocked on 2026-10-13:** a developer instance of another worktree (`D:\git-worktrees\codealta\fresh-dale-gdtp`) was running, and only one runs at a time.
+
+Facts found on the way:
+
+- **JavaScript dialogs.** A `NeoAutomation` takes the dialogs of every page it drives (`NeoAutomationPage.Attach`). The browser automation is always on, so a page that calls `alert`, `confirm` or `prompt` shows no dialog, also when the user browses by hand: it stays stopped until `browser_handle_dialog` answers or 30 seconds pass, then an alert is accepted and the others are cancelled. **To decide:** show such dialogs in the browser part of the pane (work of the page), answer them at once while no session with the tools drives the page, or ask NeoAstra for a pass-through.
+- `browser_new_page` opens an empty page and loads it through the automation's `navigate_page`, which is what knows when a document is there.
+- NeoAutomation marks `select_page` read-only and the two `take_` tools not: here the takes are reading and `select_page` is acting. A reviewed session cannot name a `filePath` for a snapshot or a screenshot.
+- NeoAutomation appends the pages of every session to some results: the wrapper replaces that list with the one of the session.
+- A view is created 1280x800 (hidden, out of sight) so that a page an agent drives without its session being shown has a real layout, and a page that is driven counts as used for the limit of live views.
+- The browsers are created before the host, so that the plugin exists when the host lists its plugins.
 ### Phase 3: Annotations
 
 - [ ] 3.1 The picker script (own file, unit-tested in headless Edge: selector building, text shortening, capture of the click, markers).
