@@ -1,0 +1,24 @@
+// English source keys; translations in es, fr, de, ja, zh-CN order.
+// "Go back", "Go forward", "Reload", "Loading…" and "Close" are messages of the application already.
+export const browserMessages = {
+  "Browser": ["Navegador", "Navigateur", "Browser", "ブラウザー", "浏览器"],
+  "Show or hide the browser of the session.": ["Muestra u oculta el navegador de la sesión.", "Affiche ou masque le navigateur de la session.", "Den Browser der Sitzung ein- oder ausblenden.", "セッションのブラウザーを表示または非表示にします。", "显示或隐藏会话的浏览器。"],
+  "Show the browser of the session": ["Mostrar el navegador de la sesión", "Afficher le navigateur de la session", "Browser der Sitzung einblenden", "セッションのブラウザーを表示", "显示会话的浏览器"],
+  "Hide the browser of the session": ["Ocultar el navegador de la sesión", "Masquer le navigateur de la session", "Browser der Sitzung ausblenden", "セッションのブラウザーを非表示", "隐藏会话的浏览器"],
+  "Resize the browser": ["Cambiar el tamaño del navegador", "Redimensionner le navigateur", "Größe des Browsers ändern", "ブラウザーのサイズを変更", "调整浏览器大小"],
+  "Pages of the browser": ["Páginas del navegador", "Pages du navigateur", "Seiten des Browsers", "ブラウザーのページ", "浏览器的页面"],
+  "New page": ["Nueva página", "Nouvelle page", "Neue Seite", "新しいページ", "新建页面"],
+  "Close page": ["Cerrar página", "Fermer la page", "Seite schließen", "ページを閉じる", "关闭页面"],
+  "Stop loading": ["Detener la carga", "Arrêter le chargement", "Laden anhalten", "読み込みを中止", "停止加载"],
+  "Address of the page": ["Dirección de la página", "Adresse de la page", "Adresse der Seite", "ページのアドレス", "页面地址"],
+  "Type an address": ["Escribe una dirección", "Saisissez une adresse", "Adresse eingeben", "アドレスを入力", "输入地址"],
+  "Open developer tools": ["Abrir herramientas de desarrollo", "Ouvrir les outils de développement", "Entwicklertools öffnen", "開発者ツールを開く", "打开开发者工具"],
+  "Close the browser": ["Cerrar el navegador", "Fermer le navigateur", "Browser schließen", "ブラウザーを閉じる", "关闭浏览器"],
+  "This session has no page yet. Type an address and press Enter to open one.": ["Esta sesión aún no tiene páginas. Escribe una dirección y pulsa Intro para abrir una.", "Cette session n’a pas encore de page. Saisissez une adresse et appuyez sur Entrée pour en ouvrir une.", "Diese Sitzung hat noch keine Seite. Adresse eingeben und die Eingabetaste drücken, um eine zu öffnen.", "このセッションにはまだページがありません。アドレスを入力して Enter キーを押すと開きます。", "此会话还没有页面。输入地址并按 Enter 打开一个页面。"],
+  "This system cannot show a browser inside the window.": ["Este sistema no puede mostrar un navegador dentro de la ventana.", "Ce système ne peut pas afficher de navigateur dans la fenêtre.", "Dieses System kann keinen Browser im Fenster anzeigen.", "このシステムではウィンドウ内にブラウザーを表示できません。", "此系统无法在窗口内显示浏览器。"],
+  "The page could not be shown. Try again.": ["No se pudo mostrar la página. Inténtalo de nuevo.", "La page n’a pas pu être affichée. Réessayez.", "Die Seite konnte nicht angezeigt werden. Erneut versuchen.", "ページを表示できませんでした。もう一度お試しください。", "无法显示页面。请重试。"],
+  "This session has too many pages. Close one to open another.": ["Esta sesión tiene demasiadas páginas. Cierra una para abrir otra.", "Cette session a trop de pages. Fermez-en une pour en ouvrir une autre.", "Diese Sitzung hat zu viele Seiten. Eine schließen, um eine weitere zu öffnen.", "このセッションのページが多すぎます。別のページを開くには 1 つ閉じてください。", "此会话的页面过多。请关闭一个后再打开。"],
+  "This address cannot be opened. The browser opens http and https addresses.": ["No se puede abrir esta dirección. El navegador abre direcciones http y https.", "Cette adresse ne peut pas être ouverte. Le navigateur ouvre les adresses http et https.", "Diese Adresse kann nicht geöffnet werden. Der Browser öffnet http- und https-Adressen.", "このアドレスは開けません。ブラウザーは http と https のアドレスを開きます。", "无法打开此地址。浏览器可打开 http 和 https 地址。"],
+  "The browser is not available right now.": ["El navegador no está disponible en este momento.", "Le navigateur n’est pas disponible pour le moment.", "Der Browser ist derzeit nicht verfügbar.", "現在ブラウザーは利用できません。", "浏览器当前不可用。"],
+  "The page is hidden while something is shown over it.": ["La página está oculta mientras se muestra algo encima.", "La page est masquée tant que quelque chose est affiché par-dessus.", "Die Seite ist ausgeblendet, solange etwas darüber angezeigt wird.", "上に何かが表示されている間、ページは非表示になります。", "有内容显示在页面上方时，页面会被隐藏。"],
+} as const;

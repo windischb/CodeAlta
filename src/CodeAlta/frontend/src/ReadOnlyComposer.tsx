@@ -27,11 +27,13 @@ function DraftUsage({ contextTokens }: { contextTokens: number | null }) {
   </Button>;
 }
 
-export function ReadOnlyComposer({ sessionId, provider, draftIndicators, reason, infoControl, onOpenHelp, onOpenCommands, localDraft, localImages, active = true }: {
+export function ReadOnlyComposer({ sessionId, provider, draftIndicators, reason, infoControl, browserControl, onOpenHelp, onOpenCommands, localDraft, localImages, active = true }: {
   active?: boolean;
   sessionId: string; provider: string | null;
   draftIndicators: ReturnType<typeof createDraftIndicators>; reason?: string;
   infoControl?: ReactNode;
+  /** What shows or hides the browser of the session, beside the information control. */
+  browserControl?: ReactNode;
   onOpenHelp?: () => void; onOpenCommands?: () => void;
   localDraft?: {
     /** The text of the draft as it is now, and how to follow it: each keystroke renders this prompt, not its owner. */
@@ -91,6 +93,7 @@ export function ReadOnlyComposer({ sessionId, provider, draftIndicators, reason,
         {/* A session that does not exist yet has no information to show: the control is there, disabled. */}
         {infoControl ?? <Button variant="minimal" className="session-info-trigger" icon={<AppIcon name="info" size={16} />} disabled
           aria-label={t("Session info")} title={t("Session info")} />}
+        {browserControl}
         <p id={`catalog-draft-status-${sessionId}`} className="sr-only">{reason ?? t("Sending requires the desktop app.")}</p>
         {localDraft?.surface && <DraftUsage contextTokens={localDraft.surface.contextTokens} />}
         {localDraft?.surface && <Button variant="minimal" icon={<AppIcon name="reminder" size={16} />} data-reminder-count="" disabled

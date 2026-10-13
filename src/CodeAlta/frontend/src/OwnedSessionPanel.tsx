@@ -75,7 +75,7 @@ export function sendFailureMessage(status: string, reason?: string): string {
 
 const noWaitingSubSessions: readonly WaitingSubSession[] = [];
 
-export function OwnedSessionPanel({ canAdmit = () => true, onRunActivity, toolOutputs, sessionId, epoch, projectId = null, usageTarget, persistedUsage = null, infoControl, submissions, steering, compaction, abortRuns, queue, capability, runtimeReader, permissionReviewer, configuration, draftIndicators, selections, remindersTrigger, compactTrigger, onOpenReminders, onOpenHelp, onOpenCommands, reminderActions, readReminderCount, activeReminderCount = null, autoSend = null, inputLifetime, liveState, timelineNotices, onOpenCatalog, active = true, observing = true, remoteControlRequest = null, waitingSubSessions = noWaitingSubSessions, createSubSessionReviewer = null }: {
+export function OwnedSessionPanel({ canAdmit = () => true, onRunActivity, toolOutputs, sessionId, epoch, projectId = null, usageTarget, persistedUsage = null, infoControl, browserControl, submissions, steering, compaction, abortRuns, queue, capability, runtimeReader, permissionReviewer, configuration, draftIndicators, selections, remindersTrigger, compactTrigger, onOpenReminders, onOpenHelp, onOpenCommands, reminderActions, readReminderCount, activeReminderCount = null, autoSend = null, inputLifetime, liveState, timelineNotices, onOpenCatalog, active = true, observing = true, remoteControlRequest = null, waitingSubSessions = noWaitingSubSessions, createSubSessionReviewer = null }: {
   /** Live retention claim, checked by programmatic admissions as well as the shell's inert DOM boundary. */
   canAdmit?: () => boolean;
   active?: boolean;
@@ -90,6 +90,8 @@ export function OwnedSessionPanel({ canAdmit = () => true, onRunActivity, toolOu
   usageTarget?: UsageTarget | null;
   persistedUsage?: string | null;
   infoControl?: ReactNode;
+  /** What shows or hides the browser of the session, beside the information control. */
+  browserControl?: ReactNode;
   runtimeReader: ReturnType<typeof createRuntimeStateReader>;
   permissionReviewer: ReturnType<typeof createPermissionReviewer> | null;
   /** The sessions under this one that wait for the user: named above the composer, their permissions answered there. */
@@ -1082,6 +1084,7 @@ ${value}` : value);
       <ObservationStatus unavailable={!invalidEpoch && (receiptUnavailable || runtimeState?.kind === "error")} />
       <span className="sr-only">{t("Enter to send or enqueue while busy · Shift+Enter for a new line · {shortcut} to send now (steer)", { shortcut: navigator.platform.startsWith("Mac") ? "Cmd+Enter" : "Ctrl+Enter" })}</span>
       {infoControl}
+      {browserControl}
       {usageTarget && <SessionUsageInspector key={JSON.stringify(usageTarget)} target={usageTarget} capability={capability} persisted={persistedUsage}
         provider={selected?.providerKey ?? observedProvider ?? null} model={selected?.modelId ? activeChoices?.models.find(m => m.id === selected.modelId)?.name ?? selected.modelId : null}
         refreshKey={`${observing}:${composerBusy}:${compacting}:${runtimeState?.kind === "ready" ? runtimeState.snapshot.entry?.activeRunId ?? "" : ""}:${liveState?.snapshot?.revision ?? ""}`} />}

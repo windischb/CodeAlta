@@ -9,7 +9,7 @@ export type CommandId =
   | "providers" | "models" | "logs" | "mcp" | "config" | "focusSidebar" | "toggleNavigator" | "focusPrompt" | "focusAskFile" | "modelSelector"
   | "usage" | "sessionInfo" | "reminders" | "messagePrevious" | "messageNext" | "messageFirst" | "messageLatest" | "bookmarkPrevious" | "bookmarkNext" | "bookmarkSession"
   | "expandPrompt" | "send" | "steer" | "abort" | "closeTab" | "previousTab" | "nextTab" | "reopenTab" | "clearQueue" | "compact" | "fork" | "rewind"
-  | "newSession" | "browseSessions" | "searchSessions" | "toggleNotes" | "previousSession" | "nextSession"
+  | "newSession" | "browseSessions" | "searchSessions" | "toggleNotes" | "browser" | "previousSession" | "nextSession"
   | "previousProject" | "nextProject" | "renameProject" | "refreshStatuses" | "zoomIn" | "zoomOut" | "resetZoom" | "exit"
   | "spaces" | "newSpace" | "goToSpace" | "previousSpace" | "nextSpace" | "moveSession";
 export type CommandCategory = "General" | "Prompt" | "Session" | "Navigation" | "Inspection";
@@ -67,6 +67,7 @@ export const commandDefinitions: readonly CommandDefinition[] = Object.freeze([
   { id: "zoomIn", name: "zoom_in", label: "Zoom In", description: "Make the text and the controls of the window larger.", category: "General", keys: ["Ctrl+=", "Ctrl+Plus"], search: "zoom larger bigger font text size scale" },
   { id: "zoomOut", name: "zoom_out", label: "Zoom Out", description: "Make the text and the controls of the window smaller.", category: "General", keys: ["Ctrl+-"], search: "zoom smaller font text size scale" },
   { id: "resetZoom", name: "reset_zoom", label: "Reset Zoom", description: "Show the window at 100% again.", category: "General", keys: ["Ctrl+0"], search: "zoom actual size font text size scale" },
+  { id: "browser", name: "browser", label: "Browser", description: "Show or hide the browser of the session.", category: "General", search: "web page site url address localhost preview http embedded" },
   { id: "toggleNotes", name: "notes", label: "Toggle Notes", description: "Show or hide the session notes.", category: "General", keys: ["Ctrl+Shift+N"], search: "alta notes" },
 
   { id: "expandPrompt", name: "full_prompt", label: "Full Prompt", description: "Edit the prompt in a large window.", category: "Prompt", keys: ["F6"] },

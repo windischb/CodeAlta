@@ -238,8 +238,15 @@ import "./spaces/spaces.css";
 import "./canvases/canvases.css";
 import "./landing/landing.css";
 import "./documentation/documentation.css";
+import "./browser/browser.css";
 import { DocumentationPanel } from "./documentation/DocumentationPanel";
 import { createDocumentationHub } from "./documentation/documentationHub";
+import { BrowserPane } from "./browser/BrowserPane";
+import { createBrowserHub, type BrowserHub } from "./browser/browserHub";
+import { browserCoversPane, browserPaneOf, browserPanesKey, defaultBrowserPane, maximumBrowserWidth, minimumBrowserWidth, parseBrowserPanes, persistBrowserPanes, resizeBrowserWidth, withBrowserPane, withoutBrowserPanes,
+  type BrowserPaneState } from "./browser/browserPlacement";
+import { createNativeViewOcclusion, type NativeViewOcclusion } from "./browser/nativeViewOcclusion";
+import { browser as browserApi } from "#neoastra";
 import "./pluginButtons/pluginButtons.css";
 import "./sessionBranch/sessionBranch.css";
 import { SessionBranchDialog, type BranchDialogHost } from "./sessionBranch/SessionBranchDialog";
@@ -1932,6 +1939,28 @@ function App() {
   // a command, a link of a message or `alta documentation open` names.
   const [documentationHub] = useState(() => createDocumentationHub(documentationApi));
   useEffect(() => terminalEpoch ? documentationHub.connect(terminalEpoch) : undefined, [documentationHub, terminalEpoch]);
+  // The browsers of the sessions: one link to the host for the window, and what the window keeps of the browser
+  // part of each session. The pages are native views of the host; the window says where each pane shows them.
+  const [browserHub] = useState(() => createBrowserHub(browserApi));
+  const [viewOcclusion] = useState(() => createNativeViewOcclusion());
+  useEffect(() => terminalEpoch ? browserHub.connect(terminalEpoch) : undefined, [browserHub, terminalEpoch]);
+  const [browserPanes, setBrowserPanes] = useState(() => {
+    try { return parseBrowserPanes(localStorage.getItem(browserPanesKey)); } catch { return parseBrowserPanes(null); }
+  });
+  useEffect(() => { persistBrowserPanes(value => localStorage.setItem(browserPanesKey, value), browserPanes); }, [browserPanes]);
+  const changeBrowserPane = (id: string, change: Partial<BrowserPaneState>) => setBrowserPanes(current => withBrowserPane(current, id, change));
+  const toggleBrowser = (id: string) => setBrowserPanes(current => withBrowserPane(current, id, { open: !browserPaneOf(current, id).open }));
+  // A session whose tab is closed is no longer shown by the window: the host lets its views go and keeps its
+  // pages. One that is gone from the catalog as well has nothing to keep here either.
+  const browserSessions = useRef<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    const open = new Set(tabs.open.map(tab => tab.sessionId));
+    const closed = [...browserSessions.current].filter(id => !open.has(id));
+    browserSessions.current = open;
+    for (const id of closed) browserHub.release(id);
+    const gone = snapshot ? closed.filter(id => !snapshot.sessions.some(row => row.id === id)).map(id => id.toLowerCase()) : [];
+    if (gone.length) setBrowserPanes(current => withoutBrowserPanes(current, id => !gone.includes(id)));
+  }, [tabs, snapshot, browserHub]);
   function openDocumentation(page: string | null = null, anchor: string | null = null) {
     documentationHub.show(page, anchor);
     openFile(documentationTab);
@@ -2327,6 +2356,7 @@ function App() {
     const ownedSession = session && owned;
     switch (command) {
       case "sessionInfo": case "messagePrevious": case "messageNext": case "messageFirst": case "messageLatest": case "toggleNotes": return session;
+      case "browser": return ownedSession;
       case "bookmarkPrevious": case "bookmarkNext": case "bookmarkSession": return ownedSession && bookmarkHost.hub.getSnapshot().available;
       case "usage": case "reminders": case "compact": case "abort": case "clearQueue": case "nextPrompt": case "modelSelector": case "send": case "steer": return ownedSession;
       case "fork": case "rewind": return ownedSession && currentProjectWritable();
@@ -2389,6 +2419,7 @@ function App() {
       case "documentation": openDocumentation(); break;
       case "bookmarks": openFile(bookmarksTab); break;
       case "bookmarkSession": if (selectedSession) void toggleSessionBookmark(selectedSession.id); break;
+      case "browser": if (selectedSession) toggleBrowser(selectedSession.id); break;
       case "bookmarkPrevious": case "bookmarkNext": {
         const pane = timelineCommand.current;
         if (pane?.sessionId === selectedSession?.id && !pane?.stepBookmark(command === "bookmarkNext" ? 1 : -1)) bookmarkNotice("There is no other bookmark that way.");
@@ -3799,6 +3830,7 @@ function App() {
                   onStart={(item, start) => void startWork(item, start, { id: row.id, workingDirectory: row.workspacePath })}
                   onOpenList={item => openWorkItems({ projectId: item.projectId, key: workItemKey(item) })} /> : undefined}
                 onRunActivity={(running, background) => { runtimeObservations.setLive(tab, running, background); noteRunActivity(tab.sessionId, running); }} notesReader={owners.notesReader} observing={visible && view === "workspace" && !settingsOpen}
+                browser={owned ? { hub: browserHub, occlusion: viewOcclusion, pane: browserPaneOf(browserPanes, row.id), onChange: change => changeBrowserPane(row.id, change) } : null}
                 active={tab.sessionId === sessionId} notesToggle={notesVisible} onActivate={() => { if (sessionId !== tab.sessionId || fileTabs.active) selectSessionTab(tab, "preview"); }}
                 infoTrigger={sessionInfoTrigger} remindersTrigger={remindersTrigger} compactTrigger={compactTrigger}
                 infoLifetime={{ revision: 0, current: () => !!currentSnapshot.current && !!resolveSessionTab(currentSnapshot.current, tab)
@@ -4204,7 +4236,7 @@ function useComposerChrome(epoch: string | null, project: WorkspaceSnapshot["pro
   }, [epoch, id, name, path, archived, sessionId, regions, showChanges, openTerminal, refreshSessions, openPullRequestSettings, worktreePath, worktreeName, worktreeMissing, place]);
 }
 
-function SessionWorkspace({ canAdmit, remoteControlRequest = null, session, snapshot, selectedProjectId, preferredComposerHeight, onComposerHeight, infoTrigger: sharedInfoTrigger, infoLifetime, remindersTrigger: sharedRemindersTrigger, compactTrigger: sharedCompactTrigger, onOpenReminders, onOpenHelp, onOpenCommands, readReminders, reminderActions, status, mutation, submissions, timelineImages, toolRecords, steering, compaction, abortRuns, queue, draftIndicators, askActions, display, scrollMemory, runtimeReader, permissionReviewer, inputReviewer, configuration: configurationSnapshot, selections, timelineCommand, onOpenCatalog, active = true, observing = true, notesToggle, onActivate, notesReader, activeReminderCount = null, autoSend = null, onRunActivity, origin, workCards, rewinds = 0, branch = null, bookmarks = null, lineage, waitingSubSessions }: {
+function SessionWorkspace({ canAdmit, remoteControlRequest = null, session, snapshot, selectedProjectId, preferredComposerHeight, onComposerHeight, infoTrigger: sharedInfoTrigger, infoLifetime, remindersTrigger: sharedRemindersTrigger, compactTrigger: sharedCompactTrigger, onOpenReminders, onOpenHelp, onOpenCommands, readReminders, reminderActions, status, mutation, submissions, timelineImages, toolRecords, steering, compaction, abortRuns, queue, draftIndicators, askActions, display, scrollMemory, runtimeReader, permissionReviewer, inputReviewer, configuration: configurationSnapshot, selections, timelineCommand, onOpenCatalog, active = true, observing = true, notesToggle, onActivate, browser = null, notesReader, activeReminderCount = null, autoSend = null, onRunActivity, origin, workCards, rewinds = 0, branch = null, bookmarks = null, lineage, waitingSubSessions }: {
   canAdmit: () => boolean;
   /** The number of times the session was rewound: what was read of its journal before a rewind is not what it holds now. */
   rewinds?: number;
@@ -4231,6 +4263,8 @@ function SessionWorkspace({ canAdmit, remoteControlRequest = null, session, snap
   notesReader: ReturnType<typeof createNotesReader>;
   observing?: boolean;
   active?: boolean; notesToggle?: boolean; onActivate?: () => void;
+  /** The browser of the session: the link to the host, and whether its part of the pane is open and how wide. Null where there is none. */
+  browser?: Readonly<{ hub: BrowserHub; occlusion: NativeViewOcclusion; pane: BrowserPaneState; onChange: (change: Partial<BrowserPaneState>) => void }> | null;
   session: WorkspaceSession;
   snapshot: WorkspaceSnapshot;
   selectedProjectId: string | null;
@@ -4408,8 +4442,26 @@ function SessionWorkspace({ canAdmit, remoteControlRequest = null, session, snap
   const infoControl =<Button ref={infoTrigger} variant="minimal" className="session-info-trigger" icon={<AppIcon name="info" size={16} />}
     aria-label={t("Session info")} title={`${t("Session info")} (Ctrl+G, Ctrl+T)`} aria-haspopup="dialog" aria-expanded={infoOpen}
     onClick={openInfo} />;
+  // The browser part of the pane, at the right of the conversation. A pane too narrow for both shows the browser alone.
+  const browserOpen = !!browser?.pane.open && !demoMode;
+  const paneRow = useRef<HTMLDivElement>(null);
+  const [browserFull, setBrowserFull] = useState(false);
+  useEffect(() => {
+    const row = paneRow.current;
+    if (!browserOpen || !row) { setBrowserFull(false); return; }
+    const measure = () => setBrowserFull(browserCoversPane(row.clientWidth));
+    const sizes = new ResizeObserver(measure);
+    sizes.observe(row);
+    measure();
+    return () => sizes.disconnect();
+  }, [browserOpen]);
+  const browserControl = browser && !demoMode ? <Button variant="minimal" className="session-browser-trigger" icon={<AppIcon name="globe" size={16} />} active={browserOpen}
+    aria-label={t(browserOpen ? "Hide the browser of the session" : "Show the browser of the session")} aria-pressed={browserOpen}
+    title={t(browserOpen ? "Hide the browser of the session" : "Show the browser of the session")} onClick={() => browser.onChange({ open: !browserOpen })} /> : undefined;
   // A relative link of a message, of the notes or of a tool window of this session starts from the folder it works in.
-  return <MarkdownLinkScopeContext.Provider value={linkScope}><BackgroundCallsContext.Provider value={backgroundCallStates}><div className="session-workspace" inert={!canAdmit()} data-active={active} style={ownWidth} ref={composer.workspaceRef} onFocusCapture={onActivate} onPointerDownCapture={onActivate}>
+  return <MarkdownLinkScopeContext.Provider value={linkScope}><BackgroundCallsContext.Provider value={backgroundCallStates}><div className="session-pane-row" ref={paneRow} data-browser={browserOpen ? browserFull ? "full" : "beside" : undefined}
+    style={browserOpen ? { "--browser-width": `${browser!.pane.width}px` } as CSSProperties : undefined}>
+    <div className="session-workspace" inert={!canAdmit() || (browserOpen && browserFull)} data-active={active} style={ownWidth} ref={composer.workspaceRef} onFocusCapture={onActivate} onPointerDownCapture={onActivate}>
     {infoOpen && <SessionInfoDialog info={sessionInfoView(snapshot, session, selectedProjectId)} demo={demoMode} onClose={closeInfo}
       lifetime={infoLifetime} canRead={() => !!mutation?.capability.canMutate()}
       target={ownedSession && !demoMode && mutation?.capability.canMutate() ? runtimeTarget(snapshot, { sessionId: session.id, projectId: selectedProjectId, path: session.workspacePath }, status?.hostEpoch ?? undefined) : null} />}
@@ -4478,15 +4530,23 @@ function SessionWorkspace({ canAdmit, remoteControlRequest = null, session, snap
               persistedUsage={persistedUsage} usageTarget={ownedSession && verifiedReminderCountTarget(snapshot, session, selectedProjectId) ? {
                 epoch: status.hostEpoch, sessionId: session.id, createdAt: session.createdAt, scope: selectedProjectId === null ? "global" : "project",
                 projectId: selectedProjectId, expectedProjectPath: selectedProjectId === null ? null : session.workspacePath } : null}
-              onOpenCatalog={onOpenCatalog} timelineNotices={timelineNotices} liveState={ownedSession ? live : null} inputLifetime={infoLifetime} remindersTrigger={remindersTrigger} compactTrigger={compactTrigger} infoControl={infoControl} projectId={selectedProjectId} onOpenReminders={() => onOpenReminders(session.id, status.hostEpoch!, selectedProjectId)} onOpenHelp={onOpenHelp} onOpenCommands={onOpenCommands}
+              onOpenCatalog={onOpenCatalog} timelineNotices={timelineNotices} liveState={ownedSession ? live : null} inputLifetime={infoLifetime} remindersTrigger={remindersTrigger} compactTrigger={compactTrigger} infoControl={infoControl} browserControl={browserControl} projectId={selectedProjectId} onOpenReminders={() => onOpenReminders(session.id, status.hostEpoch!, selectedProjectId)} onOpenHelp={onOpenHelp} onOpenCommands={onOpenCommands}
               activeReminderCount={activeReminderCount} autoSend={autoSend} reminderActions={reminderActions} readReminderCount={ownedSession && verifiedReminderCountTarget(snapshot, session, selectedProjectId) ? readReminders : undefined} /> : null}
-          readOnly={<ReadOnlyComposer active={active} sessionId={session.id} provider={session.providerKey} draftIndicators={draftIndicators} infoControl={infoControl} onOpenHelp={onOpenHelp} onOpenCommands={onOpenCommands}
+          readOnly={<ReadOnlyComposer active={active} sessionId={session.id} provider={session.providerKey} draftIndicators={draftIndicators} infoControl={infoControl} browserControl={browserControl} onOpenHelp={onOpenHelp} onOpenCommands={onOpenCommands}
               reason={archivedScope ? t("Archived project; this session is read-only. Sending is unavailable.") : undefined} />}
           recovery={ownedHost ? <ArchivedActionRecovery epoch={status!.hostEpoch!} sessionId={session.id} submissions={submissions}
             steering={steering} compaction={compaction} abortRuns={abortRuns} queue={queue}
             asks={askActions} inputs={inputReviewer} permissions={permissionReviewer} /> : null} />
         </div>
       </>}
+    </div>
+    {browser && browserOpen && <>
+      {/* The width that is resized is the one the browser has, which is less than the one kept when the pane is narrow. */}
+      <PaneSplitter className="browser-splitter" hidden={browserFull} label={t("Resize the browser")} value={browser.pane.width} min={minimumBrowserWidth} max={maximumBrowserWidth}
+        onResize={delta => browser.onChange({ width: resizeBrowserWidth(paneRow.current?.querySelector(":scope > .browser-pane")?.getBoundingClientRect().width ?? browser.pane.width, delta) })}
+        onReset={() => browser.onChange({ width: defaultBrowserPane.width })} />
+      <BrowserPane hub={browser.hub} occlusion={browser.occlusion} sessionId={session.id} shown={observing} onClose={() => browser.onChange({ open: false })} onActivate={onActivate} />
+    </>}
   </div></BackgroundCallsContext.Provider></MarkdownLinkScopeContext.Provider>;
 }
 
@@ -4534,11 +4594,14 @@ function SessionTime({ value, now }: { value: string; now: number }) {
   return <time dateTime={dateTime} title={title}>{label}</time>;
 }
 
-function PaneSplitter({ className, hidden, label, value, onResize, onReset }: {
+function PaneSplitter({ className, hidden, label, value, min = minimumIdeWidth, max = maximumIdeWidth, onResize, onReset }: {
   className: string;
   hidden?: boolean;
   label: string;
   value: number;
+  /** The range of the value, for assistive technology; the one of the Explorer without them. */
+  min?: number;
+  max?: number;
   onResize: (delta: number) => void;
   onReset: () => void;
 }) {
@@ -4566,7 +4629,7 @@ function PaneSplitter({ className, hidden, label, value, onResize, onReset }: {
       onReset();
     }
   }
-  return <div className={`pane-splitter ${className}`} hidden={hidden} role="separator" aria-label={label} aria-orientation="vertical" aria-valuenow={value} aria-valuemin={minimumIdeWidth} aria-valuemax={maximumIdeWidth}
+  return <div className={`pane-splitter ${className}`} hidden={hidden} role="separator" aria-label={label} aria-orientation="vertical" aria-valuenow={value} aria-valuemin={min} aria-valuemax={max}
     tabIndex={0} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerEnd} onPointerCancel={pointerEnd}
     onDoubleClick={onReset} onKeyDown={keyDown}><span /></div>;
 }
