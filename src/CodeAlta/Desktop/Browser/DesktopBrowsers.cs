@@ -64,7 +64,7 @@ internal enum BrowserCommand
 /// its page loads its address again when it is next shown or driven.
 /// </para>
 /// </remarks>
-internal sealed class DesktopBrowsers : IAsyncDisposable
+internal sealed partial class DesktopBrowsers : IAsyncDisposable
 {
     /// <summary>The most pages a session has.</summary>
     internal const int MaximumPages = 16;
@@ -83,7 +83,8 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
     private readonly Dictionary<string, Task<Session>> _sessions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, BrowserSessionInfo> _published = new(StringComparer.Ordinal);
     private readonly Lock _feedGate = new();
-    private readonly List<Channel<BrowserSessionInfo>> _feeds = [];
+    private readonly ConcurrentDictionary<string, BrowserAnnotationsInfo> _publishedAnnotations = new(StringComparer.Ordinal);
+    private readonly List<Channel<BrowserChange>> _feeds = [];
     private readonly Lock _savingGate = new();
     private Task _saving = Task.CompletedTask;
     private long _clock;
@@ -93,13 +94,14 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
     /// <param name="views">Creates the views, and runs work on their thread.</param>
     /// <param name="store">Keeps the pages of each session, or null to keep nothing.</param>
     /// <param name="liveViews">The most views that are kept; at least one.</param>
+    /// <param name="annotations">Keeps the annotations of each session, or null to keep none.</param>
     /// <exception cref="ArgumentNullException"><paramref name="views"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="liveViews"/> is not positive.</exception>
-    internal DesktopBrowsers(IBrowserViews views, IBrowserStore? store = null, int liveViews = DefaultLiveViews)
+    internal DesktopBrowsers(IBrowserViews views, IBrowserStore? store = null, int liveViews = DefaultLiveViews, BrowserAnnotationStore? annotations = null)
     {
         ArgumentNullException.ThrowIfNull(views);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(liveViews);
-        (_views, _store, LiveViews) = (views, store, liveViews);
+        (_views, _store, LiveViews, _annotationStore) = (views, store, liveViews, annotations);
     }
 
     /// <summary>Gets whether this system can show a browser inside the window.</summary>
@@ -354,6 +356,7 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
                     session.Active = null;
                     _published.TryRemove(sessionId, out _);
                     Tell(new BrowserSessionInfo(sessionId, [], null));
+                    if (_publishedAnnotations.TryRemove(sessionId, out _)) Tell(new BrowserChange(null, new BrowserAnnotationsInfo(sessionId, [], null, null)));
                 }
 
                 Save(() => _store?.Delete(sessionId));
@@ -373,7 +376,20 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
     /// <param name="cancellationToken">Ends the watch.</param>
     internal async IAsyncEnumerable<BrowserSessionInfo> WatchAsync([EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var channel = Channel.CreateBounded<BrowserSessionInfo>(new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
+        await foreach (var change in WatchChangesAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (change.Session is { } session) yield return session;
+        }
+    }
+
+    /// <summary>
+    /// The browsers and the annotations as they change: first what each session that was asked for in this run
+    /// has, then a session each time its pages or its annotations change.
+    /// </summary>
+    /// <param name="cancellationToken">Ends the watch.</param>
+    internal async IAsyncEnumerable<BrowserChange> WatchChangesAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var channel = Channel.CreateBounded<BrowserChange>(new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
         lock (_feedGate)
         {
             if (_closed) channel.Writer.TryComplete();
@@ -382,8 +398,9 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
 
         try
         {
-            foreach (var info in _published.Values) yield return info;
-            await foreach (var info in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false)) yield return info;
+            foreach (var info in _published.Values) yield return new BrowserChange(info, null);
+            foreach (var info in _publishedAnnotations.Values) yield return new BrowserChange(null, info);
+            await foreach (var change in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false)) yield return change;
         }
         finally
         {
@@ -416,6 +433,7 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
             // The thread of the window is gone, and the views with it.
         }
 
+        if (_pickClock is { } clock) await clock.DisposeAsync().ConfigureAwait(false);
         lock (_feedGate)
         {
             _closed = true;
@@ -437,6 +455,12 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
         public Page? Active { get; set; }
         public BrowserBounds? Placement { get; set; }
         public BrowserSessionRecord? Saved { get; set; }
+        public List<BrowserAnnotation> Annotations { get; } = [];
+        public int NextNumber { get; set; } = 1;
+        public BrowserPendingPick? Pending { get; set; }
+        // The pictures of annotations that were read or made in this run, by the identifier of their annotation.
+        public Dictionary<string, BrowserCapture?> Pictures { get; } = new(StringComparer.Ordinal);
+        public Marks? Marked { get; set; }
     }
 
     private sealed class Page(string id, Session session)
@@ -454,6 +478,8 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
         public Task? Creating { get; set; }
         public long Shown { get; set; }
         public bool Closed { get; set; }
+        public bool Picking { get; set; }
+        public (string Selector, string Address, int Rounds)? Reveal { get; set; }
     }
 
     private async Task<BrowserResult> RunAsync(string sessionId, Func<Session, Task<string>> body, bool known = false)
@@ -487,6 +513,10 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
     private async Task<Session> LoadAsync(string sessionId)
     {
         var session = new Session(sessionId);
+        // The annotations of the session are read with its pages, before anything uses the session.
+        try { await Task.Run(() => LoadAnnotations(session)); }
+        catch (Exception exception) when (exception is not OutOfMemoryException) { session.Annotations.Clear(); }
+        if (session.Annotations.Count > 0) StartClock();
         if (_store is not { } store) return session;
         BrowserSessionRecord? record;
         try { record = await Task.Run(() => store.Load(sessionId)); }
@@ -604,7 +634,7 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
     {
         if (page.View is not { } view) return;
         if (page.Handler is { } handler) view.Changed -= handler;
-        (page.View, page.Handler, page.Loading, page.CanGoBack, page.CanGoForward, page.Dialog) = (null, null, false, false, false, null);
+        (page.View, page.Handler, page.Loading, page.CanGoBack, page.CanGoForward, page.Dialog, page.Picking) = (null, null, false, false, false, null, false);
         _ = DisposeQuietlyAsync(view);
     }
 
@@ -644,11 +674,13 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
         return info;
     }
 
-    private void Tell(BrowserSessionInfo info)
+    private void Tell(BrowserSessionInfo info) => Tell(new BrowserChange(info, null));
+
+    private void Tell(BrowserChange change)
     {
         lock (_feedGate)
         {
-            foreach (var feed in _feeds) feed.Writer.TryWrite(info);
+            foreach (var feed in _feeds) feed.Writer.TryWrite(change);
         }
     }
 

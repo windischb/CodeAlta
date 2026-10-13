@@ -143,6 +143,8 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
                 window = child;
             }
 
+            // The picker of annotations is in every document of the view from its start, and waits there to be asked.
+            await view.AddScriptAsync(BrowserAnnotationScript.Source, new NeoScriptOptions { MainFrameOnly = true }, cancellationToken);
             var page = new WebViewBrowserView(this, view, LabelPrefix + pageId, controller, window, openPage);
             _live.Add(page);
             _poll ??= new Timer(static state => ((WebViewBrowserViews)state!).PostPoll(), this, PollInterval, PollInterval);
@@ -334,16 +336,38 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
             return answered;
         }
 
-        public async ValueTask<BrowserCapture?> CaptureAsync(CancellationToken cancellationToken)
+        public async ValueTask<string?> EvaluateAsync(string script, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(script);
+            if (_disposed) return null;
+            try
+            {
+                return await _view.EvaluateScriptAsync(script, cancellationToken);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or NeoAstraException or ObjectDisposedException)
+            {
+                return null;
+            }
+        }
+
+        public ValueTask<BrowserCapture?> CaptureAsync(CancellationToken cancellationToken)
+            => CaptureAsync(new NeoCaptureOptions { Format = NeoCaptureFormat.Jpeg, Quality = 80 }, cancellationToken);
+
+        public ValueTask<BrowserCapture?> CaptureRegionAsync(BrowserBounds region, CancellationToken cancellationToken)
+            => region.IsValid
+                ? CaptureAsync(new NeoCaptureOptions { Format = NeoCaptureFormat.Png, Region = new NeoRect(region.X, region.Y, region.Width, region.Height) }, cancellationToken)
+                : ValueTask.FromResult<BrowserCapture?>(null);
+
+        private async ValueTask<BrowserCapture?> CaptureAsync(NeoCaptureOptions options, CancellationToken cancellationToken)
         {
             if (_disposed || !OperatingSystem.IsWindows()) return null;
             BeginCapture();
             try
             {
-                var image = await _view.CaptureAsync(new NeoCaptureOptions { Format = NeoCaptureFormat.Jpeg, Quality = 80 }, cancellationToken);
+                var image = await _view.CaptureAsync(options, cancellationToken);
                 return new BrowserCapture(image.Data, image.ContentType, image.Width, image.Height);
             }
-            catch (Exception exception) when (exception is InvalidOperationException or NeoAstraException or ObjectDisposedException)
+            catch (Exception exception) when (exception is InvalidOperationException or NeoAstraException or ObjectDisposedException or ArgumentException)
             {
                 return null;
             }

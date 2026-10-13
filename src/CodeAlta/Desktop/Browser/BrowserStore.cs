@@ -73,15 +73,17 @@ internal sealed class BrowserFileStore(string root) : IBrowserStore
     public void Save(string sessionId, BrowserSessionRecord record)
     {
         ArgumentNullException.ThrowIfNull(record);
-        if (record.Pages.Count == 0)
-        {
-            Delete(sessionId);
-            return;
-        }
-
         if (Folder(sessionId) is not { } folder) return;
         try
         {
+            // A session without pages keeps none; what else is kept in its folder, its annotations, stays.
+            if (record.Pages.Count == 0)
+            {
+                File.Delete(Path.Combine(folder, FileName));
+                if (Directory.Exists(folder) && !Directory.EnumerateFileSystemEntries(folder).Any()) Directory.Delete(folder);
+                return;
+            }
+
             Directory.CreateDirectory(folder);
             var file = Path.Combine(folder, FileName);
             var staged = file + ".tmp";
@@ -111,4 +113,6 @@ internal sealed class BrowserFileStore(string root) : IBrowserStore
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserSessionRecord))]
+[JsonSerializable(typeof(BrowserAnnotationsRecord))]
+[JsonSerializable(typeof(string))]
 internal sealed partial class BrowserStoreJsonContext : JsonSerializerContext;

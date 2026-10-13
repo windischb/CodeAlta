@@ -62,6 +62,44 @@
 /* A page behind that waits in a dialog. */
 .browser-tab-mark { flex: none; width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: var(--accent); }
 
+/* A count on a button: the open annotations of the session. */
+.browser-count { display: inline-block; min-width: 15px; height: 15px; margin-left: 2px; padding: 0 4px; border-radius: 8px; color: #fff; background: var(--accent); font-size: 10px; font-weight: 600; line-height: 15px; text-align: center; }
+.browser-notice.browser-picking { background: var(--panel); }
+
+/* The annotations of the session, under the place of the page, which gets what is left of the height. */
+.browser-annotations { display: flex; flex: 0 1 auto; flex-direction: column; min-height: 96px; max-height: 46%; border-top: 1px solid var(--line); background: var(--bg); font-size: 12.5px; }
+.browser-annotations-bar { display: flex; flex: none; align-items: center; gap: 8px; min-height: 32px; padding: 3px 6px 3px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.browser-annotations-bar > .bp6-button { flex: 0 1 auto; min-width: 30px; }
+.browser-annotations-bar > .bp6-button.bp6-minimal { flex: none; }
+.browser-annotations-bar .bp6-button-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-annotations-bar > strong { flex: 0 1 auto; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.browser-annotations-bar > .browser-bar-space { flex: 1 1 0; min-width: 0; }
+.browser-annotations-count { flex: 0 1 auto; }
+.browser-annotations-count { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.browser-annotations-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.browser-annotations-empty { margin: 0; padding: 14px 12px; color: var(--muted); line-height: 1.5; }
+.browser-annotation-new { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--accent-soft); }
+.browser-annotation-new > textarea { min-height: 44px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--text); background: var(--bg); font: inherit; resize: vertical; }
+.browser-annotation-new > textarea:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); outline-offset: 0; }
+.browser-annotation-picked { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.browser-annotation-picked > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.browser-annotation-picked code { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.browser-annotation-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.browser-annotation-list { margin: 0; padding: 0; list-style: none; }
+.browser-annotation { display: flex; align-items: flex-start; gap: 8px; padding: 8px 6px 8px 12px; border-bottom: 1px solid var(--line); }
+.browser-annotation[data-status="resolved"] .browser-annotation-text { color: var(--muted); text-decoration: line-through; }
+.browser-annotation-number { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; color: #fff; background: var(--accent); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
+.browser-annotation[data-status="resolved"] .browser-annotation-number { background: var(--muted); }
+.browser-annotation-body { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
+.browser-annotation-text { margin: 0; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+.browser-annotation-element, .browser-annotation-page { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.browser-annotation-element { font-family: var(--mono, ui-monospace, monospace); }
+.browser-annotation-missing { color: var(--text); font-size: 11.5px; font-weight: 600; }
+.browser-annotation-resolved { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.browser-annotation-picture { display: block; max-width: min(100%, 260px); max-height: 120px; margin-top: 3px; border: 1px solid var(--line); border-radius: 4px; object-fit: contain; }
+.browser-annotation-picked > .browser-annotation-picture { flex: none; max-width: 40%; margin-top: 0; }
+.browser-annotation-actions { display: flex; flex: none; }
+
 /* A session without a page: the address field in the middle. */
 .browser-empty { flex: 1 1 0; gap: 14px; }
 .browser-empty > .browser-address-first { flex: none; width: min(460px, 100%); height: 34px; margin: 0; border-radius: 17px; font-size: 13.5px; }

@@ -5,6 +5,8 @@ import { ActivitySpinner } from "../ActivitySpinner";
 import { AppIcon } from "../AppIcon";
 import type { MessageKey } from "../localization";
 import { useShellLanguage } from "../shellLanguage";
+import { addAnnotationsToPrompt } from "./annotationPrompt";
+import { annotationNotice, BrowserAnnotations } from "./BrowserAnnotations";
 import { BrowserDialog } from "./BrowserDialog";
 import type { BrowserHub, BrowserStill } from "./browserHub";
 import { deviceBounds, sameBounds, type BrowserBounds } from "./browserPlacement";
@@ -49,6 +51,10 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
   const pages = session?.pages ?? [];
   const front = pages.find(page => page.id === session?.activePageId) ?? null;
   const frontId = front?.id ?? null;
+  const annotations = useSyncExternalStore(hub.subscribe, () => hub.annotations(sessionId));
+  // Whether the list of annotations is shown under the page. An element that waits for its text shows it too.
+  const [listOpen, setListOpen] = useState(false);
+  const picking = !!frontId && annotations?.pickingPageId === frontId;
   const [draft, setDraft] = useState<Readonly<{ page: string | null; text: string }> | null>(null);
   const [notice, setNotice] = useState<MessageKey | null>(null);
   // Whether the view is hidden because something of the window is drawn over its place.
@@ -73,7 +79,7 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
   const lastStill = useRef(Number.NEGATIVE_INFINITY);
 
   useEffect(() => { hub.ensure(sessionId); }, [hub, sessionId]);
-  useEffect(() => { setDraft(null); setNotice(null); setStill(null); }, [sessionId]);
+  useEffect(() => { setDraft(null); setNotice(null); setStill(null); setListOpen(false); }, [sessionId]);
 
   // Where the page in front is shown. The placeholder moves without changing its size (another splitter, the
   // Explorer), and an overlay moves without the document changing, so both are looked at once for each frame
@@ -169,6 +175,17 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
     answered.current = page;
     return hub.answerDialog(sessionId, page, accept, text).then(reply => said(reply.status));
   };
+  const annotationSaid = (status: string) => { setNotice(annotationNotice(status)); return status === "ok"; };
+  const togglePick = () => { if (frontId) void hub.pick(sessionId, frontId, !picking).then(reply => annotationSaid(reply.status)); };
+  async function addToPrompt() {
+    switch (await addAnnotationsToPrompt(hub, sessionId, pane.current?.closest(".session-pane-row") ?? null)) {
+      case "ok": setNotice("The annotations were added to the prompt."); break;
+      case "text": setNotice("The annotations were added to the prompt without their pictures."); break;
+      case "no_composer": setNotice("This session has no prompt to add the annotations to."); break;
+      case "failed": setNotice("The browser is not available right now."); break;
+      case "none": break;
+    }
+  }
   const ask = (command: "back" | "forward" | "reload" | "stop" | "devtools") => {
     if (frontId) void hub.command(sessionId, frontId, command).then(reply => said(reply.status));
   };
@@ -237,10 +254,17 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
             ? <Button variant="minimal" size="small" icon={<AppIcon name="stop" size={14} />} aria-label={t("Stop loading")} title={t("Stop loading")} onClick={() => ask("stop")} />
             : <Button variant="minimal" size="small" icon={<AppIcon name="refresh" size={15} />} disabled={!front} aria-label={t("Reload")} title={t("Reload")} onClick={() => ask("reload")} />}
           {front ? field("browser-address") : <span className="browser-bar-space" />}
+          <Button variant="minimal" size="small" className="browser-annotate" icon={<AppIcon name="locate" size={15} />} disabled={!front || asking} active={picking} aria-pressed={picking}
+            aria-label={t(picking ? "Stop annotating" : "Annotate an element of the page")} title={t(picking ? "Stop annotating" : "Annotate an element of the page")} onClick={togglePick}>
+            {!!annotations?.open && <span className="browser-count">{annotations.open}</span>}
+          </Button>
+          <Button variant="minimal" size="small" icon={<AppIcon name="list" size={15} />} active={listOpen} aria-pressed={listOpen}
+            aria-label={t("Show or hide the annotations")} title={t("Show or hide the annotations")} onClick={() => setListOpen(open => !open)} />
           <Button variant="minimal" size="small" icon={<AppIcon name="code" size={15} />} disabled={!front} aria-label={t("Open developer tools")} title={t("Open developer tools")} onClick={() => ask("devtools")} />
           {closeButton}
         </div>
         {notice && <p className="browser-notice" role="status">{t(notice)}</p>}
+        {picking && <p className="browser-notice browser-picking" role="status">{t("Click an element of the page to annotate it. Escape ends.")}</p>}
         {front
           ? <div className="browser-view" ref={placeholder} data-covered={covered} data-dialog={asking}>
             {/* Drawn only while the view is hidden: the view itself covers this place otherwise. */}
@@ -259,6 +283,8 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
             {field("browser-address browser-address-first")}
             <p>{t("This session has no page yet. Type an address and press Enter to open one.")}</p>
           </div>}
+        {(listOpen || !!annotations?.pending) && <BrowserAnnotations hub={hub} sessionId={sessionId} annotations={annotations} onNotice={annotationSaid}
+          onAddToPrompt={() => void addToPrompt()} onClose={() => { setListOpen(false); if (annotations?.pending) void hub.discardPick(sessionId); }} />}
       </>}
   </section>;
 }

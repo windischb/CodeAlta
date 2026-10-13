@@ -357,7 +357,8 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             // The automation of the browser views takes the JavaScript dialogs of their pages: the views tell of them,
             // so that the pane of the session shows a dialog and the user answers it there.
             browserViews.Dialogs = browserUi;
-            var sessionBrowsers = new Browser.DesktopBrowsers(browserViews, new Browser.BrowserFileStore(Path.Combine(catalog.StateRoot, "browser")));
+            var browserFiles = new Browser.BrowserFileStore(Path.Combine(catalog.StateRoot, "browser"));
+            var sessionBrowsers = new Browser.DesktopBrowsers(browserViews, browserFiles, annotations: new Browser.BrowserAnnotationStore(browserFiles));
             browsers = sessionBrowsers;
             var browserTools = new Browser.DesktopBrowserTools(browserUi, sessionBrowsers, browserSessions, browserUi.FindPage);
             var startupScratchpadCleanup = new ScratchpadStartupCleanup(

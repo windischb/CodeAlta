@@ -1,6 +1,6 @@
 import { StrictMode, useState, type CSSProperties } from "react";
 import { createRoot } from "react-dom/client";
-import type { BrowserPageItem, BrowserReply, BrowserSessionItem } from "#neoastra";
+import type { BrowserAnnotationItem, BrowserAnnotationsItem, BrowserAnnotationsReply, BrowserPageItem, BrowserReply, BrowserSessionItem } from "#neoastra";
 import { ShellLanguageContext } from "../shellLanguage";
 import type { Locale } from "../localization";
 import { BrowserPane } from "./BrowserPane";
@@ -17,6 +17,15 @@ const state = {
   places: [] as (BrowserBounds | null)[],
   status: "ok",
   still: null as string | null,
+  annotations: null as BrowserAnnotationsItem | null,
+  prompt: { status: "ok", text: "The annotations", pictures: [] as number[] },
+};
+const element = (tag: string, name: string) => ({ selector: `#${name.toLowerCase().replace(/\W+/g, "-")}`, tag, role: "", name, text: name, html: `<${tag}>` });
+const annotation = (number: number, more: Partial<BrowserAnnotationItem> = {}): BrowserAnnotationItem => ({ number, text: `Change ${number}`, status: "open", resolvedBy: null, note: null,
+  address: "https://example.com/a", title: "Page a", element: element("button", `Button ${number}`), hasImage: false, found: true, ...more });
+const annotated = (name: string, ...parts: unknown[]): Promise<BrowserAnnotationsReply> => {
+  state.calls.push([name, ...parts].join(" "));
+  return Promise.resolve({ status: state.status, annotations: state.annotations });
 };
 const listeners = new Set<() => void>();
 const changed = () => { for (const listener of [...listeners]) listener(); };
@@ -39,6 +48,13 @@ const hub: BrowserHub = {
   answerDialog: (sessionId, pageId, accept, text = null) => answer("answerDialog", sessionId, pageId, accept ? "accept" : "dismiss", text ?? ""),
   place: (_sessionId, bounds) => { state.places.push(bounds); },
   release: sessionId => { state.calls.push(`release ${sessionId}`); },
+  annotations: () => state.annotations,
+  pick: (sessionId, pageId, on) => annotated("pick", sessionId, pageId, on),
+  saveAnnotation: (sessionId, text) => annotated("saveAnnotation", sessionId, text),
+  discardPick: sessionId => annotated("discardPick", sessionId),
+  changeAnnotation: (sessionId, number, action) => annotated("changeAnnotation", sessionId, number, action),
+  annotationImage: (sessionId, number) => { state.calls.push(`annotationImage ${sessionId} ${number}`); return Promise.resolve(state.still); },
+  annotationPrompt: sessionId => { state.calls.push(`annotationPrompt ${sessionId}`); return Promise.resolve(state.prompt); },
   capture: (sessionId, pageId) => { state.calls.push(`capture ${sessionId} ${pageId}`); return Promise.resolve(state.still ? { image: state.still, width: 1, height: 1 } : null); },
 };
 const occlusion = createNativeViewOcclusion();
@@ -53,11 +69,13 @@ function Fixture() {
   Object.assign(window, { browserFixture: { state, setShown, setMounted, setLocale, setSize, closed,
     setSession: (session: BrowserSessionItem | null) => { state.session = session; changed(); },
     setSupported: (supported: boolean | null) => { state.supported = supported; changed(); },
-    page } });
+    setAnnotations: (annotations: BrowserAnnotationsItem | null) => { state.annotations = annotations; changed(); },
+    page, annotation, element } });
   return <ShellLanguageContext.Provider value={{ locale, choice: locale, setLanguage: value => setLocale(value as Locale) }}>
     <div className="ide-shell" style={{ display: "block", ...size, marginLeft: 13.5, marginTop: 7.5 }}>
       <div className="session-pane-row" data-browser="beside" style={{ "--browser-width": "480px" } as CSSProperties}>
-        <div className="session-workspace" />
+        {/* The composer of the session, as far as the browser part uses it: an editor that takes a prompt and pasted images. */}
+        <div className="session-workspace"><textarea id="session-prompt-fixture" aria-label="Message" style={{ width: 200, height: 40 }} /></div>
         <div className="pane-splitter browser-splitter" role="separator"><span /></div>
         {mounted && <BrowserPane hub={hub} occlusion={occlusion} sessionId="fixture" shown={shown} onClose={() => setClosed(value => value + 1)} />}
       </div>

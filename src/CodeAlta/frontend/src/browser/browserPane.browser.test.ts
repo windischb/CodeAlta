@@ -280,6 +280,75 @@ test("the browser of a session says where its page is, hides it behind what the 
     await act(asks("", ""));
     await calls();
 
+    // Annotations. The toolbar turns pick mode on and off in the page in front, and says so while it is on.
+    const annotations = (value: string) => `${f}.setAnnotations(${value})`;
+    const some = (list: string, more = "") => `{ sessionId: 'fixture', annotations: ${list}, pickingPageId: null, pending: null, open: ${list}.filter(item => item.status === 'open').length${more} }`;
+    const panel = "document.querySelector('.browser-annotations')";
+    await calls();
+    assert.equal(await evaluate(panel), null);
+    assert.equal(await evaluate("document.querySelector('.browser-annotate .browser-count')"), null);
+    await act(`${button("Annotate an element of the page")}.click()`);
+    assert.deepEqual(await asked(), ["pick fixture a true"]);
+    await act(annotations(some("[]", ", pickingPageId: 'a'")));
+    assert.equal(await evaluate("document.querySelector('.browser-picking').textContent"), "Click an element of the page to annotate it. Escape ends.");
+    assert.equal(await evaluate(`${button("Stop annotating")}.getAttribute('aria-pressed')`), "true");
+    await placed("the page stays shown while an element is picked");
+    await act(`${button("Stop annotating")}.click()`);
+    assert.deepEqual(await asked(), ["pick fixture a false"]);
+    // An element was picked: the list opens under the page, which gets less room, with what the page reported and a field.
+    const tall = (await evaluate(`${view}.getBoundingClientRect().height`)) as number;
+    await act(`${state}.still = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='`);
+    await act(annotations(some("[]", ", pending: { pageId: 'a', address: 'https://example.com/a', title: 'Page a', element: " + `${f}.element('button', 'Pay now')` + ", hasImage: true }")));
+    await until(`${panel} && ${view}.getBoundingClientRect().height < ${tall}`);
+    await placed("the page above the annotations");
+    assert.ok(await evaluate(`${panel}.getBoundingClientRect().top >= ${view}.getBoundingClientRect().bottom - 0.5`));
+    assert.deepEqual(await evaluate(`[${panel}.querySelector('.browser-annotation-picked .browser-annotation-element').textContent, ${panel}.querySelector('.browser-annotation-picked code').textContent]`), ["<button> Pay now", "#pay-now"]);
+    await until(`${panel}.querySelector('.browser-annotation-picked img') !== null`);
+    assert.ok(await evaluate(`document.activeElement === ${panel}.querySelector('textarea')`), "the text is typed here");
+    assert.equal(await evaluate(`[...${panel}.querySelectorAll('button')].find(item => item.textContent === 'Save annotation').disabled`), true, "an annotation needs a text");
+    await calls();
+    await act(`const field = ${panel}.querySelector('textarea'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, 'Make it green'); field.dispatchEvent(new Event('input', { bubbles: true }))`);
+    await act(`[...${panel}.querySelectorAll('button')].find(item => item.textContent === 'Save annotation').click()`);
+    assert.deepEqual(await asked(), ["saveAnnotation fixture Make it green"]);
+    // Escape in the field forgets what was picked.
+    await act(`${panel}.querySelector('textarea').focus()`);
+    await key("Escape", 27);
+    assert.deepEqual(await asked(), ["discardPick fixture"]);
+    // The list: the open ones as the host orders them, what is not on the page said, a resolution with who and why.
+    await act(annotations(some(`[${f}.annotation(2, { text: 'Bigger title', hasImage: true }), ${f}.annotation(3, { found: false }), ${f}.annotation(1, { status: 'resolved', resolvedBy: 'agent', note: 'Done in app.css', found: null })]`)));
+    assert.equal(await evaluate(panel), null, "nothing waits for a text: the list is as the user left it");
+    assert.equal(await evaluate("document.querySelector('.browser-annotate .browser-count').textContent"), "2");
+    await act(`${button("Show or hide the annotations")}.click()`);
+    assert.deepEqual(await evaluate(`[...${panel}.querySelectorAll('.browser-annotation')].map(item => [item.querySelector('.browser-annotation-number').textContent, item.querySelector('.browser-annotation-text').textContent, item.dataset.status,
+      item.querySelector('.browser-annotation-missing')?.textContent ?? null, item.querySelector('.browser-annotation-resolved')?.textContent ?? null])`),
+      [["2", "Bigger title", "open", null, null], ["3", "Change 3", "open", "Not found on this page", null], ["1", "Change 1", "resolved", null, "Resolved by the agent: Done in app.css"]]);
+    assert.equal(await evaluate(`${panel}.querySelector('.browser-annotations-count').textContent`), "2 open");
+    assert.equal(await evaluate(`[...${panel}.querySelectorAll('button')].every(item => !!item.title || !!item.textContent)`), true);
+    await until(`${panel}.querySelector('.browser-annotation img') !== null`);
+    await calls();
+    const rowButton = (row: number, label: string) => `${panel}.querySelectorAll('.browser-annotation')[${row}].querySelector('button[aria-label="${label}"]')`;
+    await act(`${rowButton(0, "Go to the element")}.click(); ${rowButton(0, "Resolve")}.click(); ${rowButton(2, "Reopen")}.click(); ${rowButton(1, "Delete")}.click()`);
+    assert.deepEqual(await asked(), ["changeAnnotation fixture 2 reveal", "changeAnnotation fixture 2 resolve", "changeAnnotation fixture 1 reopen", "changeAnnotation fixture 3 delete"]);
+    // Add to prompt writes the annotations after what the composer holds, and hands their pictures over as a paste.
+    await act(`window.pasted = []; window.drafts = [];
+      window.addEventListener('codealta:plugin', event => { const request = event.detail; if (request.sessionId !== 'fixture') return; request.handled = true; request.result = true;
+        if (request.kind === 'state') request.state = { sessionId: 'fixture', draftText: 'Please fix these.', busy: false }; else if (request.kind === 'draft') window.drafts.push(request.text); });
+      document.getElementById('session-prompt-fixture').addEventListener('paste', event => { window.pasted.push([...event.clipboardData.files].map(file => file.name + ' ' + file.type)); event.preventDefault(); })`);
+    await act(`${state}.prompt = { status: 'ok', text: 'The annotations', pictures: [2] }; ${state}.still = 'data:image/png;base64,iVBORw0KGgo='`);
+    await act(`[...${panel}.querySelectorAll('button')].find(item => item.textContent === 'Add to prompt').click()`);
+    await until("document.querySelector('.browser-notice')?.textContent === 'The annotations were added to the prompt.'");
+    assert.deepEqual(await evaluate("[window.drafts, window.pasted]"), [["Please fix these.\n\nThe annotations"], [["annotation-2.png image/png"]]]);
+    // The list keeps the frame inside its pane in every language, and closes.
+    for (const locale of ["de", "ja", "en"]) {
+      await act(`${f}.setSize({ width: 700, height: 500 }); ${f}.setLocale('${locale}')`);
+      assert.equal(await evaluate(`[document.querySelector('.browser-pane'), document.querySelector('.browser-bar'), ${panel}, ${panel}.querySelector('.browser-annotations-bar')].every(item => item.scrollWidth <= item.clientWidth)`), true, `annotations ${locale}`);
+    }
+    await act(`${f}.setSize({ width: 1000, height: 600 })`);
+    await act(`${button("Hide the annotations")}.click()`);
+    assert.equal(await evaluate(panel), null);
+    await act(annotations("null"));
+    await calls();
+
     // A session without a page: the address field in the middle, and no view anywhere.
     await act(`${f}.setSession({ sessionId: 'fixture', activePageId: null, pages: [] })`);
     await hidden("no page to show");

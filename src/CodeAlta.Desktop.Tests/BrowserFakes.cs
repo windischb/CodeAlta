@@ -81,6 +81,41 @@ internal sealed class FakeView(string pageId, Action<Uri> openPage) : IBrowserVi
 
     public void EndCapture() => Captures.Add(Bounds is null ? "end hidden" : "end shown");
 
+    /// <summary>The scripts the view was asked to run, in order.</summary>
+    public List<string> Scripts { get; } = [];
+
+    /// <summary>What the picker of the page answers to the script that asks where pick mode is; null for a page that does not answer.</summary>
+    public string? PickState { get; set; } = """{"state":"off"}""";
+
+    /// <summary>The numbers of the annotations whose element the page finds.</summary>
+    public HashSet<int> Found { get; } = [];
+
+    /// <summary>The parts of the view that were captured.</summary>
+    public List<BrowserBounds> Regions { get; } = [];
+
+    public ValueTask<string?> EvaluateAsync(string script, CancellationToken cancellationToken)
+    {
+        Scripts.Add(script);
+        // What the picker returns is a JSON text, which the view gives as a JSON string.
+        static string? Text(string? json) => json is null ? null : System.Text.Json.JsonSerializer.Serialize(json);
+        if (script.Contains(".pick(true)", StringComparison.Ordinal)) return ValueTask.FromResult(Text(PickState is null ? null : """{"state":"picking"}"""));
+        if (script.Contains(".pick(false)", StringComparison.Ordinal)) return ValueTask.FromResult(Text("""{"state":"off"}"""));
+        if (script.Contains(".poll()", StringComparison.Ordinal)) return ValueTask.FromResult(Text(PickState));
+        if (script.Contains(".mark(", StringComparison.Ordinal))
+        {
+            var asked = System.Text.RegularExpressions.Regex.Matches(script, "\"number\":(\\d+)").Select(static match => int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture));
+            return ValueTask.FromResult(Text($$"""{"found":[{{string.Join(',', asked.Where(Found.Contains))}}]}"""));
+        }
+
+        return ValueTask.FromResult(Text("""{"found":true}"""));
+    }
+
+    public ValueTask<BrowserCapture?> CaptureRegionAsync(BrowserBounds region, CancellationToken cancellationToken)
+    {
+        Regions.Add(region);
+        return ValueTask.FromResult<BrowserCapture?>(new BrowserCapture(new byte[] { 0x89, 0x50, 0x4e, 0x47 }, "image/png", region.Width, region.Height));
+    }
+
     /// <summary>The answers to the dialogs of the page, in order: "accept", "accept:&lt;text&gt;" or "dismiss".</summary>
     public List<string> Answers { get; } = [];
 

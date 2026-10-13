@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { BrowserEvent, BrowserPageItem, BrowserReply, BrowserSessionItem } from "#neoastra";
+import type { BrowserAnnotationItem, BrowserAnnotationsItem, BrowserEvent, BrowserPageItem, BrowserReply, BrowserSessionItem } from "#neoastra";
 import { createBrowserHub, reconnectMilliseconds, type BrowserApi } from "./browserHub";
 
 const page = (id: string, more: Partial<BrowserPageItem> = {}): BrowserPageItem => ({ id, address: `https://example.com/${id}`, title: id, loading: false, canGoBack: false, canGoForward: false, live: true, dialog: null, ...more });
 const browserOf = (sessionId: string, pages: BrowserPageItem[], activePageId: string | null = pages[0]?.id ?? null): BrowserSessionItem => ({ sessionId, pages, activePageId });
-const ready = (supported = true): BrowserEvent => ({ kind: "ready", supported, session: null });
-const told = (session: BrowserSessionItem): BrowserEvent => ({ kind: "session", supported: true, session });
+const ready = (supported = true): BrowserEvent => ({ kind: "ready", supported, session: null, annotations: null });
+const told = (session: BrowserSessionItem): BrowserEvent => ({ kind: "session", supported: true, session, annotations: null });
+const annotation = (number: number, more: Partial<BrowserAnnotationItem> = {}): BrowserAnnotationItem => ({ number, text: `Change ${number}`, status: "open", resolvedBy: null, note: null,
+  address: "https://example.com/a", title: "a", element: { selector: `#e${number}`, tag: "button", role: "button", name: "Pay", text: "Pay", html: "<button>" }, hasImage: true, found: true, ...more });
+const annotationsOf = (sessionId: string, annotations: BrowserAnnotationItem[], more: Partial<BrowserAnnotationsItem> = {}): BrowserAnnotationsItem =>
+  ({ sessionId, annotations, pickingPageId: null, pending: null, open: annotations.filter(item => item.status === "open").length, ...more });
+const annotated = (annotations: BrowserAnnotationsItem): BrowserEvent => ({ kind: "annotations", supported: true, session: null, annotations });
 const settle = async () => { for (let turn = 0; turn < 20; turn++) await Promise.resolve(); };
 
 // A host that tells what a test gives it, records what it is asked, and timers a test runs by hand. The
@@ -17,6 +22,13 @@ function fixture() {
   const placements: Array<(status?: string) => void> = [];
   const timers: Array<{ run: () => void; milliseconds: number }> = [];
   const answers = new Map<string, BrowserReply>();
+  // The annotations of a session are read with its pages: these reads are counted apart from the other calls.
+  const reads: string[] = [];
+  const replies = { annotations: null as BrowserAnnotationsItem | null, status: "ok", image: "data:image/png;base64,AA==" as string | null };
+  const annotate = (name: string) => (request: object) => {
+    calls.push(`${name} ${JSON.stringify(request)}`);
+    return failing ? Promise.reject(Error("gone")) : Promise.resolve({ status: replies.status, annotations: replies.annotations });
+  };
   let failing = false;
   const reply = (name: string) => (request: object) => {
     calls.push(`${name} ${JSON.stringify(request)}`);
@@ -37,6 +49,10 @@ function fixture() {
     },
     state: reply("state"), open: reply("open"), close: reply("close"), select: reply("select"), move: reply("move"),
     navigate: reply("navigate"), command: reply("command"), release: reply("release"), answerDialog: reply("answerDialog"),
+    annotations: (request: object) => { reads.push(JSON.stringify(request)); return Promise.resolve({ status: "ok", annotations: replies.annotations }); },
+    pick: annotate("pick"), saveAnnotation: annotate("saveAnnotation"), discardPick: annotate("discardPick"), changeAnnotation: annotate("changeAnnotation"),
+    annotationImage: (request: object) => { calls.push(`annotationImage ${JSON.stringify(request)}`); return Promise.resolve({ status: replies.image ? "ok" : "unavailable_page", image: replies.image, width: 0, height: 0 }); },
+    annotationPrompt: (request: object) => { calls.push(`annotationPrompt ${JSON.stringify(request)}`); return Promise.resolve({ status: "ok", text: "The annotations", pictures: [1] }); },
     place: (request: object) => {
       calls.push(`place ${JSON.stringify(request)}`);
       return new Promise<BrowserReply>(resolve => placements.push((status = "ok") => resolve({ status, session: null, pageId: null })));
@@ -44,7 +60,7 @@ function fixture() {
     capture: (request: object) => { calls.push(`capture ${JSON.stringify(request)}`); return Promise.resolve({ status: answers.get("capture")?.status ?? "ok", image: "data:image/jpeg;base64,AA==", width: 8, height: 6 }); },
   } as unknown as BrowserApi;
   const hub = createBrowserHub(api, { set: (run, milliseconds) => { const timer = { run, milliseconds }; timers.push(timer); return timer; }, clear: timer => { const index = timers.indexOf(timer as typeof timers[number]); if (index >= 0) timers.splice(index, 1); } });
-  return { hub, calls, watches, placements, timers, answers,
+  return { hub, calls, watches, placements, timers, answers, reads, replies,
     fail: (value: boolean) => { failing = value; },
     take: () => calls.splice(0),
     // Answers the placements that wait, oldest first.
@@ -128,6 +144,77 @@ test("a JavaScript dialog of a page is told as it opens and goes, and answered t
   assert.equal(hub.session("s1")?.pages[0].dialog, null);
   assert.equal(changes, 3);
   stop();
+});
+
+test("the annotations of a session are read with its pages, told as they change, and changed through the host", async () => {
+  const { hub, watches, take, reads, replies } = fixture();
+  replies.annotations = annotationsOf("s1", [annotation(1)]);
+  hub.ensure("s1");
+  const stop = hub.connect("epoch");
+  await settle();
+  assert.equal(hub.annotations("s1"), null);
+  watches[0].push(ready());
+  await settle();
+  // Asked for with the pages, once: the count on the buttons of the session needs no browser part.
+  assert.deepEqual(reads, ['{"expectedEpoch":"epoch","sessionId":"s1"}']);
+  assert.equal(hub.annotations("s1")?.open, 1);
+  take();
+  let changes = 0;
+  hub.subscribe(() => { changes++; });
+  const first = hub.annotations("s1");
+  // The same annotations told again are no change; a pick that is going on, an element that waits, a resolution are.
+  watches[0].push(annotated(annotationsOf("s1", [annotation(1)])));
+  await settle();
+  assert.equal(hub.annotations("s1"), first);
+  assert.equal(changes, 0);
+  watches[0].push(annotated(annotationsOf("s1", [annotation(1)], { pickingPageId: "a" })));
+  await settle();
+  assert.equal(hub.annotations("s1")?.pickingPageId, "a");
+  watches[0].push(annotated(annotationsOf("s1", [annotation(1, { found: false })])));
+  await settle();
+  assert.equal(hub.annotations("s1")?.annotations[0].found, false);
+  assert.equal(changes, 2);
+  // A session that has none, and never had, is not told of.
+  watches[0].push(annotated(annotationsOf("s2", [])));
+  await settle();
+  assert.equal(hub.annotations("s2"), null);
+  assert.equal(changes, 2);
+
+  // What the pane asks goes to the host, and what the host answers is what the session has.
+  replies.annotations = annotationsOf("s1", [annotation(1), annotation(2)]);
+  assert.equal((await hub.pick("s1", "a", true)).status, "ok");
+  assert.equal((await hub.saveAnnotation("s1", "Make it blue")).status, "ok");
+  assert.equal((await hub.discardPick("s1")).status, "ok");
+  assert.equal((await hub.changeAnnotation("s1", 2, "resolve")).status, "ok");
+  assert.deepEqual(take(), ['pick {"expectedEpoch":"epoch","sessionId":"s1","pageId":"a","on":true}', 'saveAnnotation {"expectedEpoch":"epoch","sessionId":"s1","text":"Make it blue"}',
+    'discardPick {"expectedEpoch":"epoch","sessionId":"s1"}', 'changeAnnotation {"expectedEpoch":"epoch","sessionId":"s1","number":2,"action":"resolve"}']);
+  assert.equal(hub.annotations("s1")?.annotations.length, 2);
+  replies.status = "limit";
+  assert.equal((await hub.saveAnnotation("s1", "One more")).status, "limit");
+  replies.status = "ok";
+  take();
+
+  // The picture of an annotation is read once; the one of the element that was picked each time, since it changes.
+  assert.equal(await hub.annotationImage("s1", 2), "data:image/png;base64,AA==");
+  assert.equal(await hub.annotationImage("s1", 2), "data:image/png;base64,AA==");
+  await hub.annotationImage("s1", 0);
+  await hub.annotationImage("s1", 0);
+  assert.deepEqual(take().map(call => call.replace(/^(\w+) .*"number":(\d+).*$/, "$1 $2")), ["annotationImage 2", "annotationImage 0", "annotationImage 0"]);
+  // An annotation that is gone takes its picture with it.
+  watches[0].push(annotated(annotationsOf("s1", [annotation(1)])));
+  await settle();
+  replies.image = null;
+  assert.equal(await hub.annotationImage("s1", 2), null);
+  assert.deepEqual((await hub.annotationPrompt("s1")), { status: "ok", text: "The annotations", pictures: [1] });
+  take();
+
+  // A session whose tab is closed is forgotten with its annotations.
+  const before = changes;
+  hub.release("s1");
+  assert.equal(hub.annotations("s1"), null);
+  assert.equal(changes, before + 1);
+  stop();
+  assert.equal((await hub.pick("s1", "a", true)).status, "unavailable");
 });
 
 test("a system without browser views says so", async () => {

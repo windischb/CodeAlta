@@ -247,6 +247,8 @@ import { browserCoversPane, browserPaneOf, browserPanesKey, defaultBrowserPane, 
   type BrowserPaneState } from "./browser/browserPlacement";
 import { createNativeViewOcclusion, type NativeViewOcclusion } from "./browser/nativeViewOcclusion";
 import { browser as browserApi } from "#neoastra";
+// A session without a browser hears of no change of one.
+const noBrowserChanges = () => () => { };
 import "./pluginButtons/pluginButtons.css";
 import "./sessionBranch/sessionBranch.css";
 import { SessionBranchDialog, type BranchDialogHost } from "./sessionBranch/SessionBranchDialog";
@@ -4455,9 +4457,15 @@ function SessionWorkspace({ canAdmit, remoteControlRequest = null, session, snap
     measure();
     return () => sizes.disconnect();
   }, [browserOpen]);
+  // The open annotations of the session are counted on the button, also while its browser part is closed.
+  const browserHub = browser && !demoMode ? browser.hub : null;
+  useEffect(() => { if (browserHub && observing) browserHub.ensure(session.id); }, [browserHub, observing, session.id]);
+  const openAnnotations = useSyncExternalStore(browserHub?.subscribe ?? noBrowserChanges, () => browserHub?.annotations(session.id)?.open ?? 0);
+  const browserTitle = t(browserOpen ? "Hide the browser of the session" : "Show the browser of the session") + (openAnnotations > 0 ? ` (${t("{count} open annotations", { count: openAnnotations })})` : "");
   const browserControl = browser && !demoMode ? <Button variant="minimal" className="session-browser-trigger" icon={<AppIcon name="globe" size={16} />} active={browserOpen}
-    aria-label={t(browserOpen ? "Hide the browser of the session" : "Show the browser of the session")} aria-pressed={browserOpen}
-    title={t(browserOpen ? "Hide the browser of the session" : "Show the browser of the session")} onClick={() => browser.onChange({ open: !browserOpen })} /> : undefined;
+    aria-label={browserTitle} aria-pressed={browserOpen} title={browserTitle} onClick={() => browser.onChange({ open: !browserOpen })}>
+    {openAnnotations > 0 && <span className="browser-count">{openAnnotations}</span>}
+  </Button> : undefined;
   // A relative link of a message, of the notes or of a tool window of this session starts from the folder it works in.
   return <MarkdownLinkScopeContext.Provider value={linkScope}><BackgroundCallsContext.Provider value={backgroundCallStates}><div className="session-pane-row" ref={paneRow} data-browser={browserOpen ? browserFull ? "full" : "beside" : undefined}
     style={browserOpen ? { "--browser-width": `${browser!.pane.width}px` } as CSSProperties : undefined}>

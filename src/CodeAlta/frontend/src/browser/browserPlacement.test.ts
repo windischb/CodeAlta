@@ -101,7 +101,7 @@ test("a pane too narrow for a conversation beside a browser gives the browser th
 
 test("Browser messages have complete localized placeholders in every shell language", () => {
   // The word German has for it.
-  const sameWord = new Set(["de: Browser"]);
+  const sameWord = new Set(["de: Browser", "fr: Annotations"]);
   for (const key of Object.keys(browserMessages) as MessageKey[]) {
     const placeholders = (key.match(/\{\w+\}/g) ?? []).sort();
     for (const locale of locales) {

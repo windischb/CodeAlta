@@ -1,8 +1,11 @@
 // The page's link to the browsers of the sessions: the pages each session has, and where the window shows them.
-import type { browser, BrowserReply, BrowserSessionItem } from "#neoastra";
+import type { browser, BrowserAnnotationsItem, BrowserAnnotationsReply, BrowserReply, BrowserSessionItem } from "#neoastra";
 import { sameBounds, type BrowserBounds } from "./browserPlacement";
 
-export type BrowserApi = Pick<typeof browser, "watch" | "state" | "open" | "close" | "select" | "move" | "navigate" | "command" | "answerDialog" | "place" | "release" | "capture">;
+export type BrowserApi = Pick<typeof browser, "watch" | "state" | "open" | "close" | "select" | "move" | "navigate" | "command" | "answerDialog" | "place" | "release" | "capture"
+  | "annotations" | "pick" | "saveAnnotation" | "discardPick" | "changeAnnotation" | "annotationImage" | "annotationPrompt">;
+/** What an annotation can be asked: to be resolved, opened again or removed, or its element to be shown. */
+export type AnnotationAction = "resolve" | "reopen" | "delete" | "reveal";
 /** What a page can be asked to do. */
 export type BrowserCommand = "back" | "forward" | "reload" | "stop" | "devtools" | "focus";
 /** A picture of a page: a `data:` address and its size in pixels. */
@@ -13,6 +16,8 @@ type Timers = Readonly<{ set: (run: () => void, milliseconds: number) => unknown
 export const reconnectMilliseconds = 2000;
 /** How long a call may take: a view that has to be created is the slow one. */
 const callMilliseconds = 20_000;
+/** How many pictures of annotations are kept once read. */
+const keptPictures = 64;
 
 export type BrowserHub = ReturnType<typeof createBrowserHub>;
 
@@ -39,6 +44,9 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
   // Whether the watch of this epoch said it is there: the host is asked about a session only then.
   let listening = false;
   const sessions = new Map<string, BrowserSessionItem>();
+  const annotations = new Map<string, BrowserAnnotationsItem>();
+  // The pictures of annotations that were read, by session and number: an annotation keeps its picture.
+  const pictures = new Map<string, string>();
   const listeners = new Set<() => void>();
   // The sessions whose browser the page shows, and those the host was asked about since it is listened to.
   const asked = new Set<string>();
@@ -57,6 +65,30 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
     if (sameSession(sessions.get(id), session)) return;
     sessions.set(id, session);
     notify();
+  }
+
+  function applyAnnotations(next: BrowserAnnotationsItem | null | undefined) {
+    if (!next) return;
+    const id = key(next.sessionId);
+    // A session without annotations and without a pick has nothing to tell of.
+    if (next.annotations.length === 0 && !next.pickingPageId && !next.pending && !annotations.has(id)) return;
+    if (JSON.stringify(annotations.get(id)) === JSON.stringify(next)) return;
+    annotations.set(id, next);
+    // A number is given once: a picture that is kept stays the one of its annotation, until that one is gone.
+    for (const name of [...pictures.keys()]) {
+      if (name.startsWith(`${id} `) && !next.annotations.some(annotation => `${id} ${annotation.number}` === name)) pictures.delete(name);
+    }
+    notify();
+  }
+
+  async function annotate(send: (expectedEpoch: string) => Promise<BrowserAnnotationsReply>): Promise<BrowserAnnotationsReply> {
+    const host = epoch;
+    if (!host) return { status: "unavailable", annotations: null };
+    try {
+      const reply = await send(host);
+      if (epoch === host) applyAnnotations(reply.annotations);
+      return reply;
+    } catch { return { status: "failed", annotations: null }; }
   }
 
   async function call(sessionId: string, send: (expectedEpoch: string) => Promise<BrowserReply>): Promise<BrowserReply> {
@@ -78,6 +110,8 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
       if (epoch !== host) return;
       if (reply.status === "ok") apply(reply.session); else ensured.delete(id);
     }, () => { if (epoch === host) ensured.delete(id); });
+    // The annotations of the session are read with its pages: the count on its buttons needs no browser part.
+    void annotate(expectedEpoch => api.annotations({ expectedEpoch, sessionId: id }, { timeoutMilliseconds: callMilliseconds }));
   }
 
   const hidden = (expectedEpoch: string, sessionId: string) => ({ expectedEpoch, sessionId, visible: false, x: 0, y: 0, width: 0, height: 0 });
@@ -117,6 +151,8 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
     supported: () => supported,
     /** The browser of a session as the host last told it, or null before it did. The same object until it changes. */
     session: (sessionId: string): BrowserSessionItem | null => sessions.get(key(sessionId)) ?? null,
+    /** The annotations of a session as the host last told them, or null when it told none. The same object until they change. */
+    annotations: (sessionId: string): BrowserAnnotationsItem | null => annotations.get(key(sessionId)) ?? null,
 
     /** Listens to the host of an epoch until the returned function is called. */
     connect(hostEpoch: string) {
@@ -126,6 +162,7 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
       listening = false;
       ensured.clear();
       told.clear();
+      pictures.clear();
       async function watch() {
         try {
           for await (const event of await api.watch({ expectedEpoch: hostEpoch }, { signal: abort.signal })) {
@@ -138,6 +175,7 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
               for (const id of asked) ask(id);
               tellAll();
             } else if (event.kind === "session") apply(event.session);
+            else if (event.kind === "annotations") applyAnnotations(event.annotations);
           }
         } catch { /* The watch ended: it starts again below, unless the page stopped listening. */ }
         if (epoch === hostEpoch) listening = false;
@@ -182,6 +220,37 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
     /** Asks a page to go back or forward, to load again, to stop, to open its developer tools or to take the keyboard. */
     command: (sessionId: string, pageId: string, command: BrowserCommand) =>
       call(sessionId, expectedEpoch => api.command({ expectedEpoch, sessionId, pageId, command })),
+    /** Turns pick mode on or off in a page: while it is on, a click in the page picks an element. */
+    pick: (sessionId: string, pageId: string, on: boolean) =>
+      annotate(expectedEpoch => api.pick({ expectedEpoch, sessionId, pageId, on }, { timeoutMilliseconds: callMilliseconds })),
+    /** Makes an annotation of the element that was picked, with what the user wrote. */
+    saveAnnotation: (sessionId: string, text: string) => annotate(expectedEpoch => api.saveAnnotation({ expectedEpoch, sessionId, text })),
+    /** Forgets the element that was picked. */
+    discardPick: (sessionId: string) => annotate(expectedEpoch => api.discardPick({ expectedEpoch, sessionId })),
+    /** Resolves, reopens or deletes an annotation, or goes to its element. */
+    changeAnnotation: (sessionId: string, number: number, action: AnnotationAction) =>
+      annotate(expectedEpoch => api.changeAnnotation({ expectedEpoch, sessionId, number, action }, { timeoutMilliseconds: callMilliseconds })),
+    /** The picture of the element of an annotation as a `data:` address, or with 0 of the element that was picked; null when there is none. */
+    async annotationImage(sessionId: string, number: number): Promise<string | null> {
+      const host = epoch, name = `${key(sessionId)} ${number}`;
+      if (!host) return null;
+      if (number > 0 && pictures.has(name)) return pictures.get(name)!;
+      try {
+        const reply = await api.annotationImage({ expectedEpoch: host, sessionId, number, action: null }, { timeoutMilliseconds: 8000 });
+        if (reply.status !== "ok" || !reply.image || epoch !== host) return null;
+        if (number > 0) {
+          if (pictures.size >= keptPictures) pictures.delete(pictures.keys().next().value!);
+          pictures.set(name, reply.image);
+        }
+        return reply.image;
+      } catch { return null; }
+    },
+    /** The open annotations of a session as a prompt, and the numbers of those whose picture goes with it. */
+    async annotationPrompt(sessionId: string): Promise<Readonly<{ status: string; text: string | null; pictures: readonly number[] }>> {
+      const host = epoch;
+      if (!host) return { status: "unavailable", text: null, pictures: [] };
+      try { return await api.annotationPrompt({ expectedEpoch: host, sessionId }); } catch { return { status: "failed", text: null, pictures: [] }; }
+    },
     /** Answers the JavaScript dialog a page has open: accepted or dismissed, with the text of a prompt. */
     answerDialog: (sessionId: string, pageId: string, accept: boolean, text: string | null = null) =>
       call(sessionId, expectedEpoch => api.answerDialog({ expectedEpoch, sessionId, pageId, accept, text })),
@@ -204,7 +273,8 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
       ensured.delete(id);
       wanted.delete(id);
       told.delete(id);
-      const known = sessions.delete(id);
+      const known = sessions.delete(id) || annotations.has(id);
+      annotations.delete(id);
       if (host) quietly(api.release({ expectedEpoch: host, sessionId: id }));
       if (known) notify();
     },

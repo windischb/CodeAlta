@@ -103,4 +103,8 @@
       <ContentWithTargetPath Remove="$(NeoRpcTypeScriptOutput)" />
     </ItemGroup>
   </Target>
+  <ItemGroup>
+    <!-- The picker of annotations, which the host adds to every document of a browser view. -->
+    <EmbeddedResource Include="Desktop\Browser\annotation-picker.js" LogicalName="CodeAlta.Desktop.Browser.annotation-picker.js" />
+  </ItemGroup>
 </Project>

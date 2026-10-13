@@ -322,7 +322,7 @@ public sealed class DesktopBrowserToolsTests
         public Fixture(FakeViews? views = null, int liveViews = DesktopBrowsers.DefaultLiveViews)
         {
             Views = views ?? new FakeViews();
-            Browsers = new DesktopBrowsers(Views, store: null, liveViews);
+            Browsers = new DesktopBrowsers(Views, store: null, liveViews) { Clock = false };
             Ui = new FakeBrowserUi(Root, Views);
             Tools = new DesktopBrowserTools(Ui, Browsers, Sessions, Ui.FindPage);
             Files = new DesktopUiFiles(Ui.FilesDirectory, [Ui.FilesDirectory]);

@@ -243,7 +243,7 @@ public sealed class DesktopBrowserPluginTests
             DesktopPlugins.ForWindow(fixture.Ui, window, reviewsCommands: false).Select(static plugin => plugin.Id).ToArray());
     }
 
-    private static Task<CodeAltaHost> CreateHostAsync(DesktopBrowserToolsTests.Fixture fixture, out PluginAltaServiceBridge pluginAlta, ScriptedProvider? provider = null,
+    internal static Task<CodeAltaHost> CreateHostAsync(DesktopBrowserToolsTests.Fixture fixture, out PluginAltaServiceBridge pluginAlta, ScriptedProvider? provider = null,
         string name = "global", string configuration = "")
     {
         var global = Directory.CreateDirectory(Path.Combine(fixture.Root, name)).FullName;
