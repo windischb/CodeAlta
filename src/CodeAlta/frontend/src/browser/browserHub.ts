@@ -2,7 +2,7 @@
 import type { browser, BrowserReply, BrowserSessionItem } from "#neoastra";
 import { sameBounds, type BrowserBounds } from "./browserPlacement";
 
-export type BrowserApi = Pick<typeof browser, "watch" | "state" | "open" | "close" | "select" | "move" | "navigate" | "command" | "place" | "release" | "capture">;
+export type BrowserApi = Pick<typeof browser, "watch" | "state" | "open" | "close" | "select" | "move" | "navigate" | "command" | "answerDialog" | "place" | "release" | "capture">;
 /** What a page can be asked to do. */
 export type BrowserCommand = "back" | "forward" | "reload" | "stop" | "devtools" | "focus";
 /** A picture of a page: a `data:` address and its size in pixels. */
@@ -23,7 +23,8 @@ function sameSession(a: BrowserSessionItem | undefined, b: BrowserSessionItem): 
   return !!a && a.activePageId === b.activePageId && a.pages.length === b.pages.length && a.pages.every((page, index) => {
     const other = b.pages[index];
     return page.id === other.id && page.address === other.address && page.title === other.title && page.loading === other.loading
-      && page.canGoBack === other.canGoBack && page.canGoForward === other.canGoForward && page.live === other.live;
+      && page.canGoBack === other.canGoBack && page.canGoForward === other.canGoForward && page.live === other.live
+      && page.dialog?.kind === other.dialog?.kind && page.dialog?.message === other.dialog?.message && page.dialog?.defaultText === other.dialog?.defaultText;
   });
 }
 
@@ -181,6 +182,9 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
     /** Asks a page to go back or forward, to load again, to stop, to open its developer tools or to take the keyboard. */
     command: (sessionId: string, pageId: string, command: BrowserCommand) =>
       call(sessionId, expectedEpoch => api.command({ expectedEpoch, sessionId, pageId, command })),
+    /** Answers the JavaScript dialog a page has open: accepted or dismissed, with the text of a prompt. */
+    answerDialog: (sessionId: string, pageId: string, accept: boolean, text: string | null = null) =>
+      call(sessionId, expectedEpoch => api.answerDialog({ expectedEpoch, sessionId, pageId, accept, text })),
 
     /**
      * Says where the pane of a session shows its browser, or with null that it shows none. The same placement

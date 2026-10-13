@@ -195,6 +195,59 @@ test("the browser of a session says where its page is, hides it behind what the 
     await act(`${button("Close the browser")}.click()`);
     assert.equal(await evaluate(`${f}.closed`), 1);
 
+    // A page that waits in a JavaScript dialog shows none by itself: its place shows the dialog, and the view is hidden.
+    const dialog = "document.querySelector('.browser-dialog')";
+    const asks = (id: string, value: string) => `${f}.setSession({ sessionId: 'fixture', activePageId: 'a', pages: [${f}.page('a', ${id === "a" ? `{ dialog: ${value} }` : "{}"}), ${f}.page('b', ${id === "b" ? `{ dialog: ${value} }` : "{}"})] })`;
+    await act(`${f}.setSession({ sessionId: 'fixture', activePageId: 'a', pages: [${f}.page('a'), ${f}.page('b')] })`);
+    await placed("before a page asks");
+    await calls();
+    await act(`${address}.focus(); ${asks("a", "{ kind: 'confirm', message: 'Delete the draft?\\nIt cannot be restored.', defaultText: null }")}`);
+    await hidden("a page that waits in a dialog");
+    assert.deepEqual(await evaluate(`[${dialog}.getAttribute('role'), ${dialog}.querySelector('strong').textContent, ${dialog}.querySelector('p').textContent, [...${dialog}.querySelectorAll('button')].map(button => button.textContent)]`),
+      ["alertdialog", "example.com says", "Delete the draft?\nIt cannot be restored.", ["Cancel", "OK"]]);
+    assert.equal(await evaluate(`${dialog}.querySelector('input')`), null);
+    assert.ok(await evaluate(`document.activeElement === ${dialog}.querySelector('button[type=submit]')`), "the keyboard comes to the dialog from the browser part");
+    assert.ok(await evaluate(`(() => { const box = ${dialog}.getBoundingClientRect(), place = ${view}.getBoundingClientRect(); return box.left >= place.left && box.right <= place.right && box.top >= place.top; })()`));
+    assert.equal(await evaluate("document.querySelector('.browser-tab-mark')"), null, "the page in front shows its dialog, not a mark");
+    // Escape dismisses, and the page takes the keyboard back once its view is shown again.
+    await key("Escape", 27);
+    await until(`${state}.calls.includes('answerDialog fixture a dismiss ')`);
+    await act(asks("", ""));
+    await placed("the dialog was answered");
+    await until(`${state}.calls.includes('command fixture a focus')`);
+    assert.deepEqual((await calls()).filter(call => !call.startsWith("capture")), ["answerDialog fixture a dismiss ", "command fixture a focus"]);
+    assert.equal(await evaluate(dialog), null);
+    // A prompt has a field with what the page proposes; Enter accepts with what was typed.
+    await act(asks("a", "{ kind: 'prompt', message: 'Your name?', defaultText: 'Ada' }"));
+    await hidden("a page that waits in a prompt");
+    assert.deepEqual(await evaluate(`[${dialog}.querySelector('input').value, document.activeElement === ${dialog}.querySelector('input'), ${dialog}.querySelector('input').getAttribute('aria-label')]`), ["Ada", true, "Answer for the page"]);
+    await act(`const field = ${dialog}.querySelector('input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(field, 'Grace'); field.dispatchEvent(new Event('input', { bubbles: true }))`);
+    await key("Enter", 13);
+    await until(`${state}.calls.includes('answerDialog fixture a accept Grace')`);
+    assert.ok(await evaluate(`[...${dialog}.querySelectorAll('button')].every(button => button.disabled)`), "an answer is given once");
+    await act(asks("", ""));
+    await placed("the prompt was answered");
+    // An alert has one button; the question before a page is left has words of its own.
+    await act(asks("a", "{ kind: 'alert', message: 'Saved.', defaultText: null }"));
+    assert.deepEqual(await evaluate(`[...${dialog}.querySelectorAll('button')].map(button => button.textContent)`), ["OK"]);
+    await act(`${dialog}.querySelector('button').click()`);
+    await until(`${state}.calls.includes('answerDialog fixture a accept ')`);
+    await act(asks("a", "{ kind: 'beforeunload', message: '', defaultText: null }"));
+    assert.deepEqual(await evaluate(`[${dialog}.querySelector('p').textContent, [...${dialog}.querySelectorAll('button')].map(button => button.textContent)]`), ["Leave this page? Changes you made may not be saved.", ["Stay", "Leave"]]);
+    // What is typed elsewhere in the window is left alone when a page asks.
+    await act(asks("", ""));
+    await act("const other = document.createElement('textarea'); other.id = 'elsewhere'; document.body.append(other); other.focus()");
+    await act(asks("a", "{ kind: 'alert', message: 'Hello', defaultText: null }"));
+    assert.equal(await evaluate("document.activeElement.id"), "elsewhere");
+    await act("document.getElementById('elsewhere').remove()");
+    // A page behind that asks is marked on its tab, and the page in front stays shown.
+    await act(asks("b", "{ kind: 'alert', message: 'Behind', defaultText: null }"));
+    await placed("a page behind asks");
+    assert.equal(await evaluate(dialog), null);
+    assert.deepEqual(await evaluate("[...document.querySelectorAll('.browser-tab')].map(tab => tab.querySelector('.browser-tab-mark')?.getAttribute('aria-label') ?? null)"), [null, "This page asks a question"]);
+    await act(asks("", ""));
+    await calls();
+
     // A session without a page: the address field in the middle, and no view anywhere.
     await act(`${f}.setSession({ sessionId: 'fixture', activePageId: null, pages: [] })`);
     await hidden("no page to show");

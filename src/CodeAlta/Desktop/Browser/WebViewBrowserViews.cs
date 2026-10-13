@@ -29,6 +29,12 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
     /// <summary>How often the views are asked what they show: a view reports the end of a navigation, not a new title.</summary>
     internal static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(400);
 
+    /// <summary>
+    /// How long a page waits for the answer to a JavaScript dialog, and for every other decision of the host: the
+    /// longest time NeoAstra takes. A dialog waits for a person, who answers it in the pane of the session.
+    /// </summary>
+    internal static readonly TimeSpan DecisionTimeout = TimeSpan.FromMinutes(10);
+
     // The size of a page whose session was never shown: what a session that drives it lays out and captures.
     private const int HiddenWidth = 1280, HiddenHeight = 800;
 
@@ -50,6 +56,12 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
     /// is hidden. It is called on the thread of the window.
     /// </summary>
     internal Action? KeyboardReturned { get; set; }
+
+    /// <summary>
+    /// Gets or sets where the views learn of the JavaScript dialogs of their pages, and answer them: the automation
+    /// that drives the views, which takes the dialogs. Without it a view knows of none.
+    /// </summary>
+    internal IBrowserDialogs? Dialogs { get; set; }
 
     /// <summary>
     /// Gives the keyboard to the browser view that had it last, when that view is still shown: for a window that is
@@ -117,6 +129,7 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
             FillParent = false,
             Bounds = Offstage,
             BridgePolicy = NeoBridgePolicy.Disabled,
+            DecisionTimeout = DecisionTimeout,
         }, cancellationToken);
         try
         {
@@ -130,7 +143,7 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
                 window = child;
             }
 
-            var page = new WebViewBrowserView(this, view, controller, window, openPage);
+            var page = new WebViewBrowserView(this, view, LabelPrefix + pageId, controller, window, openPage);
             _live.Add(page);
             _poll ??= new Timer(static state => ((WebViewBrowserViews)state!).PostPoll(), this, PollInterval, PollInterval);
             return page;
@@ -218,6 +231,7 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
     {
         private readonly WebViewBrowserViews _owner;
         private readonly View _view;
+        private readonly string _label;
         private readonly nint _controller;
         private BrowserBounds? _bounds;
         // The size the view last had in the window: the one it is captured in while it is hidden.
@@ -225,9 +239,9 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
         private int _captures;
         private bool _disposed;
 
-        internal WebViewBrowserView(WebViewBrowserViews owner, View view, nint controller, nint window, Action<Uri> openPage)
+        internal WebViewBrowserView(WebViewBrowserViews owner, View view, string label, nint controller, nint window, Action<Uri> openPage)
         {
-            (_owner, _view, _controller, Window) = (owner, view, controller, window);
+            (_owner, _view, _label, _controller, Window) = (owner, view, label, controller, window);
             State = Read();
             // A document may go where the browser may be sent; a frame of it loads what a frame loads.
             view.NavigationRequested = static request => ValueTask.FromResult(
@@ -312,6 +326,14 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
             if (!_disposed && _bounds is null && OperatingSystem.IsWindows()) BrowserViewInterop.SetVisible(_controller, false);
         }
 
+        public async ValueTask<bool> AnswerDialogAsync(bool accept, string? text)
+        {
+            if (_disposed || _owner.Dialogs is not { } dialogs) return false;
+            var answered = await dialogs.AnswerAsync(_label, accept, text);
+            Refresh();
+            return answered;
+        }
+
         public async ValueTask<BrowserCapture?> CaptureAsync(CancellationToken cancellationToken)
         {
             if (_disposed || !OperatingSystem.IsWindows()) return null;
@@ -350,7 +372,8 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
         }
 
         private BrowserViewState Read()
-            => new(_view.Source?.AbsoluteUri ?? BrowserAddress.Blank, _view.Title ?? string.Empty, _view.IsLoading, _view.CanGoBack, _view.CanGoForward);
+            => new(_view.Source?.AbsoluteUri ?? BrowserAddress.Blank, _view.Title ?? string.Empty, _view.IsLoading, _view.CanGoBack, _view.CanGoForward,
+                _owner.Dialogs?.Find(_label));
 
         private void Do(Action action)
         {

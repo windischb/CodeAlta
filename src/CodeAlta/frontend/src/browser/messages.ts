@@ -21,4 +21,10 @@ export const browserMessages = {
   "This address cannot be opened. The browser opens http and https addresses.": ["No se puede abrir esta dirección. El navegador abre direcciones http y https.", "Cette adresse ne peut pas être ouverte. Le navigateur ouvre les adresses http et https.", "Diese Adresse kann nicht geöffnet werden. Der Browser öffnet http- und https-Adressen.", "このアドレスは開けません。ブラウザーは http と https のアドレスを開きます。", "无法打开此地址。浏览器可打开 http 和 https 地址。"],
   "The browser is not available right now.": ["El navegador no está disponible en este momento.", "Le navigateur n’est pas disponible pour le moment.", "Der Browser ist derzeit nicht verfügbar.", "現在ブラウザーは利用できません。", "浏览器当前不可用。"],
   "The page is hidden while something is shown over it.": ["La página está oculta mientras se muestra algo encima.", "La page est masquée tant que quelque chose est affiché par-dessus.", "Die Seite ist ausgeblendet, solange etwas darüber angezeigt wird.", "上に何かが表示されている間、ページは非表示になります。", "有内容显示在页面上方时，页面会被隐藏。"],
+  "{origin} says": ["{origin} dice", "{origin} indique", "{origin} meldet", "{origin} の内容", "{origin} 显示"],
+  "Answer for the page": ["Respuesta para la página", "Réponse pour la page", "Antwort für die Seite", "ページへの回答", "给页面的回答"],
+  "This page asks a question": ["Esta página hace una pregunta", "Cette page pose une question", "Diese Seite stellt eine Frage", "このページが質問しています", "此页面正在询问"],
+  "Leave this page? Changes you made may not be saved.": ["¿Salir de esta página? Es posible que los cambios no se guarden.", "Quitter cette page ? Les modifications apportées ne seront peut-être pas enregistrées.", "Diese Seite verlassen? Änderungen werden möglicherweise nicht gespeichert.", "このページを離れますか？変更が保存されない可能性があります。", "要离开此页面吗？所做的更改可能不会保存。"],
+  "Leave": ["Salir", "Quitter", "Verlassen", "離れる", "离开"],
+  "Stay": ["Permanecer", "Rester", "Bleiben", "とどまる", "留下"],
 } as const;

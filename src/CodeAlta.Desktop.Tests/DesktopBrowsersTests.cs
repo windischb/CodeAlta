@@ -303,6 +303,56 @@ public sealed class DesktopBrowsersTests
     }
 
     [TestMethod]
+    public async Task AJavaScriptDialogOfAPage_IsToldToThePage_AndAnsweredByWhoeverIsFirst()
+    {
+        var views = new FakeViews();
+        await using var browsers = new DesktopBrowsers(views);
+        var service = new BrowserService(browsers, Epoch);
+        var first = (await service.OpenAsync(new(Epoch, "s", "example.com"))).PageId!;
+        var second = (await service.OpenAsync(new(Epoch, "s", "example.org"))).PageId!;
+        Assert.IsNull(browsers.Peek("s")!.Pages[0].Dialog);
+
+        // A page behind opens a dialog: the browser of the session says so, with the texts of the page shortened.
+        views.Of(first).Ask(BrowserDialog.Create("prompt", new string('m', BrowserDialog.MaximumTextLength + 50), "default"));
+        var told = (await service.StateAsync(new(Epoch, "s"))).Session!.Pages;
+        Assert.AreEqual("prompt", told[0].Dialog!.Kind);
+        Assert.AreEqual(BrowserDialog.MaximumTextLength, told[0].Dialog!.Message.Length);
+        Assert.AreEqual("default", told[0].Dialog!.DefaultText);
+        Assert.IsNull(told[1].Dialog);
+        Assert.IsNull(BrowserDialog.Create("confirm", "Sure?", "ignored").DefaultText);
+
+        // The user answers it in the pane: the view is told, and the dialog is gone.
+        var answered = await service.AnswerDialogAsync(new(Epoch, "s", first, true, "typed"));
+        Assert.AreEqual("ok", answered.Status);
+        Assert.IsNull(answered.Session!.Pages[0].Dialog);
+        CollectionAssert.AreEqual(new[] { "accept:typed" }, views.Of(first).Answers);
+
+        // Dismissed, and accepted without a text.
+        views.Of(second).Ask(BrowserDialog.Create("confirm", "Leave?", null));
+        Assert.AreEqual("ok", (await service.AnswerDialogAsync(new(Epoch, "s", second, false, null))).Status);
+        views.Of(second).Ask(BrowserDialog.Create("alert", "Done", null));
+        Assert.AreEqual("ok", (await service.AnswerDialogAsync(new(Epoch, "s", second, true, null))).Status);
+        CollectionAssert.AreEqual(new[] { "dismiss", "accept" }, views.Of(second).Answers);
+
+        // A tool of the session was first: the dialog is gone, and the answer of the user is taken without a second one.
+        views.Of(first).Ask(BrowserDialog.Create("alert", "Hello", null));
+        Assert.IsNotNull(browsers.Peek("s")!.Pages[0].Dialog);
+        views.Of(first).AnswerElsewhere();
+        Assert.IsNull(browsers.Peek("s")!.Pages[0].Dialog);
+        Assert.AreEqual("ok", (await service.AnswerDialogAsync(new(Epoch, "s", first, true, null))).Status);
+        Assert.AreEqual(1, views.Of(first).Answers.Count);
+
+        // No such page, a text that is too long, and a page whose view was let go has no dialog.
+        Assert.AreEqual("not_found", (await service.AnswerDialogAsync(new(Epoch, "s", "no-such-page", true, null))).Status);
+        Assert.AreEqual("invalid", (await service.AnswerDialogAsync(new(Epoch, "s", first, true, new string('x', BrowserDialog.MaximumTextLength + 1)))).Status);
+        Assert.AreEqual("stale_epoch", (await service.AnswerDialogAsync(new("another", "s", first, true, null))).Status);
+        views.Of(first).Ask(BrowserDialog.Create("alert", "Still there", null));
+        await browsers.ReleaseAsync("s");
+        Assert.IsNull(browsers.Peek("s")!.Pages[0].Dialog);
+        Assert.IsFalse(browsers.Peek("s")!.Pages[0].Live);
+    }
+
+    [TestMethod]
     public async Task WithoutAnOwnedHost_EveryOperationIsUnavailable_AndAnotherEpochIsRefused()
     {
         var unavailable = new BrowserService();

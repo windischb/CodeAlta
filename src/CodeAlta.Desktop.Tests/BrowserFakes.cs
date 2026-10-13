@@ -81,6 +81,23 @@ internal sealed class FakeView(string pageId, Action<Uri> openPage) : IBrowserVi
 
     public void EndCapture() => Captures.Add(Bounds is null ? "end hidden" : "end shown");
 
+    /// <summary>The answers to the dialogs of the page, in order: "accept", "accept:&lt;text&gt;" or "dismiss".</summary>
+    public List<string> Answers { get; } = [];
+
+    /// <summary>The page opens a JavaScript dialog, as the automation of the views would tell.</summary>
+    public void Ask(BrowserDialog dialog) => Report(State with { Dialog = dialog });
+
+    /// <summary>Somebody else answered the dialog of the page: a tool of the session, or its time ran out.</summary>
+    public void AnswerElsewhere() => Report(State with { Dialog = null });
+
+    public ValueTask<bool> AnswerDialogAsync(bool accept, string? text)
+    {
+        if (State.Dialog is null) return ValueTask.FromResult(false);
+        Answers.Add(accept ? text is null ? "accept" : "accept:" + text : "dismiss");
+        Report(State with { Dialog = null });
+        return ValueTask.FromResult(true);
+    }
+
     public ValueTask<BrowserCapture?> CaptureAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult<BrowserCapture?>(new BrowserCapture(new byte[] { 0xff, 0xd8, 0xff, 0xd9 }, "image/jpeg", 2, 1));
 

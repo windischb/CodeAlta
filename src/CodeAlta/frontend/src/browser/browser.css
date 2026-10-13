@@ -51,6 +51,17 @@
 .browser-covered > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browser-covered > small { margin-top: 8px; font-size: 11.5px; }
 
+/* A JavaScript dialog of the page in front, in the place of the page, whose view is hidden meanwhile. */
+.browser-view[data-dialog="true"] { display: flex; align-items: flex-start; justify-content: center; padding: 28px 16px; overflow: auto; }
+.browser-dialog { display: flex; flex-direction: column; gap: 10px; width: min(440px, 100%); padding: 16px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--text); background: var(--panel); box-shadow: 0 8px 24px color-mix(in srgb, #000 22%, transparent); font-size: 13px; }
+.browser-dialog > strong { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.browser-dialog > p { max-height: 40vh; margin: 0; overflow: auto; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.browser-dialog-text { height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--text); background: var(--panel-2); font: inherit; }
+.browser-dialog-text:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); outline-offset: 0; }
+.browser-dialog-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+/* A page behind that waits in a dialog. */
+.browser-tab-mark { flex: none; width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: var(--accent); }
+
 /* A session without a page: the address field in the middle. */
 .browser-empty { flex: 1 1 0; gap: 14px; }
 .browser-empty > .browser-address-first { flex: none; width: min(460px, 100%); height: 34px; margin: 0; border-radius: 17px; font-size: 13.5px; }

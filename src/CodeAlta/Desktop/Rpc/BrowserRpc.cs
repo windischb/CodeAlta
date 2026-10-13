@@ -113,6 +113,18 @@ internal sealed class BrowserService
     }
 
     /// <summary>
+    /// Answers the JavaScript dialog a page has open, which the pane of the session shows in the place of the page:
+    /// accepted or dismissed, with the text of a prompt.
+    /// </summary>
+    [NeoRpcMethod("answerDialog")]
+    public async Task<BrowserReply> AnswerDialogAsync(BrowserDialogRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (Refuse(request.ExpectedEpoch) is { } refused) return new(refused);
+        return Reply(await _browsers!.AnswerDialogAsync(request.SessionId ?? string.Empty, request.PageId ?? string.Empty, request.Accept, request.Text).ConfigureAwait(false));
+    }
+
+    /// <summary>
     /// Says where the pane of a session shows its browser, in the pixels of the display from the top-left corner of
     /// the page of the application, or that it shows none.
     /// </summary>
@@ -176,7 +188,8 @@ internal sealed class BrowserService
 
     private static BrowserSessionItem Item(BrowserSessionInfo session)
         => new(session.SessionId,
-            [.. session.Pages.Select(static page => new BrowserPageItem(page.Id, page.Address, page.Title, page.Loading, page.CanGoBack, page.CanGoForward, page.Live))],
+            [.. session.Pages.Select(static page => new BrowserPageItem(page.Id, page.Address, page.Title, page.Loading, page.CanGoBack, page.CanGoForward, page.Live,
+                page.Dialog is { } dialog ? new BrowserDialogItem(dialog.Kind, dialog.Message, dialog.DefaultText) : null))],
             session.ActivePageId);
 }
 
@@ -218,6 +231,14 @@ internal sealed record BrowserNavigateRequest(string? ExpectedEpoch, string? Ses
 /// <param name="Command"><c>back</c>, <c>forward</c>, <c>reload</c>, <c>stop</c>, <c>devtools</c> or <c>focus</c>.</param>
 internal sealed record BrowserCommandRequest(string? ExpectedEpoch, string? SessionId, string? PageId, string? Command);
 
+/// <summary>The answer to the JavaScript dialog of a page.</summary>
+/// <param name="ExpectedEpoch">The host epoch the page read.</param>
+/// <param name="SessionId">The session.</param>
+/// <param name="PageId">The page.</param>
+/// <param name="Accept">Whether the dialog is accepted, or dismissed.</param>
+/// <param name="Text">The text of a prompt that is accepted; null for its default text.</param>
+internal sealed record BrowserDialogRequest(string? ExpectedEpoch, string? SessionId, string? PageId, bool Accept, string? Text);
+
 /// <summary>Where the pane of a session shows its browser.</summary>
 /// <param name="ExpectedEpoch">The host epoch the page read.</param>
 /// <param name="SessionId">The session.</param>
@@ -240,7 +261,14 @@ internal sealed record BrowserWatchRequest(string? ExpectedEpoch);
 /// <param name="CanGoBack">Whether its history has an earlier document.</param>
 /// <param name="CanGoForward">Whether its history has a later document.</param>
 /// <param name="Live">Whether the page has its view: a page without one loads its address again when it is shown.</param>
-internal sealed record BrowserPageItem(string Id, string Address, string Title, bool Loading, bool CanGoBack, bool CanGoForward, bool Live);
+/// <param name="Dialog">The JavaScript dialog the page has open and waits in, or null.</param>
+internal sealed record BrowserPageItem(string Id, string Address, string Title, bool Loading, bool CanGoBack, bool CanGoForward, bool Live, BrowserDialogItem? Dialog = null);
+
+/// <summary>A JavaScript dialog of a page. Its texts are those of the page.</summary>
+/// <param name="Kind"><c>alert</c>, <c>confirm</c>, <c>prompt</c> or <c>beforeunload</c>.</param>
+/// <param name="Message">What the page says.</param>
+/// <param name="DefaultText">The text a prompt starts with; null for the other kinds.</param>
+internal sealed record BrowserDialogItem(string Kind, string Message, string? DefaultText);
 
 /// <summary>The browser of a session.</summary>
 /// <param name="SessionId">The session.</param>

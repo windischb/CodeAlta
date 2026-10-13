@@ -20,7 +20,49 @@ internal readonly record struct BrowserBounds(int X, int Y, int Width, int Heigh
 /// <param name="Loading">Whether a document is being loaded.</param>
 /// <param name="CanGoBack">Whether its history has an earlier document.</param>
 /// <param name="CanGoForward">Whether its history has a later document.</param>
-internal sealed record BrowserViewState(string Address, string Title, bool Loading, bool CanGoBack, bool CanGoForward);
+/// <param name="Dialog">The JavaScript dialog its document has open and waits in, or null.</param>
+internal sealed record BrowserViewState(string Address, string Title, bool Loading, bool CanGoBack, bool CanGoForward, BrowserDialog? Dialog = null);
+
+/// <summary>
+/// A JavaScript dialog of a page: <c>alert</c>, <c>confirm</c>, <c>prompt</c>, or the question before a document is
+/// left. The document runs no script until the dialog is answered.
+/// </summary>
+/// <param name="Kind"><c>alert</c>, <c>confirm</c>, <c>prompt</c> or <c>beforeunload</c>.</param>
+/// <param name="Message">What the page says; the text of the page, shortened.</param>
+/// <param name="DefaultText">The text a prompt starts with; null for the other kinds.</param>
+internal sealed record BrowserDialog(string Kind, string Message, string? DefaultText)
+{
+    /// <summary>The longest message or default text that is kept, in UTF-16 units.</summary>
+    internal const int MaximumTextLength = 4000;
+
+    /// <summary>A dialog with its texts shortened to what is kept.</summary>
+    /// <param name="kind">The kind of the dialog.</param>
+    /// <param name="message">What the page says.</param>
+    /// <param name="defaultText">The text a prompt starts with.</param>
+    internal static BrowserDialog Create(string kind, string? message, string? defaultText)
+        => new(kind, Shorten(message) ?? string.Empty, kind == "prompt" ? Shorten(defaultText) ?? string.Empty : null);
+
+    private static string? Shorten(string? text) => text is null || text.Length <= MaximumTextLength ? text : text[..MaximumTextLength];
+}
+
+/// <summary>
+/// The JavaScript dialogs of the browser views. The automation that drives the views takes the dialogs of their
+/// pages: it is where a view learns of its dialog, and where the dialog is answered.
+/// </summary>
+internal interface IBrowserDialogs
+{
+    /// <summary>The dialog the page of a view has open.</summary>
+    /// <param name="viewLabel">The label the view was created with.</param>
+    /// <returns>The dialog, or null when the page has none or the view is not known.</returns>
+    BrowserDialog? Find(string viewLabel);
+
+    /// <summary>Answers the dialog the page of a view has open.</summary>
+    /// <param name="viewLabel">The label the view was created with.</param>
+    /// <param name="accept">Whether the dialog is accepted, or dismissed.</param>
+    /// <param name="text">The text of a prompt that is accepted; null for its default text.</param>
+    /// <returns>Whether a dialog was answered; false when somebody else answered it first.</returns>
+    ValueTask<bool> AnswerAsync(string viewLabel, bool accept, string? text);
+}
 
 /// <summary>A picture of what a page shows.</summary>
 /// <param name="Data">The encoded image.</param>
@@ -75,6 +117,12 @@ internal interface IBrowserView : IAsyncDisposable
 
     /// <summary>Ends what <see cref="BeginCapture"/> began: a view that has no place in the window is hidden again.</summary>
     void EndCapture();
+
+    /// <summary>Answers the JavaScript dialog the page has open (<see cref="BrowserViewState.Dialog"/>).</summary>
+    /// <param name="accept">Whether the dialog is accepted, or dismissed.</param>
+    /// <param name="text">The text of a prompt that is accepted; null for its default text.</param>
+    /// <returns>Whether a dialog was answered; false when the page had none any more.</returns>
+    ValueTask<bool> AnswerDialogAsync(bool accept, string? text);
 
     /// <summary>Takes a picture of what the view shows. A view that is hidden is captured out of sight.</summary>
     /// <param name="cancellationToken">Cancels the wait.</param>

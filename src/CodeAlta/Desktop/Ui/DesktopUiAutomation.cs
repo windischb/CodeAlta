@@ -21,7 +21,7 @@ namespace CodeAlta.Desktop.Ui;
 /// document, so that the console messages and the requests of the page are known from its first one.
 /// </para>
 /// </remarks>
-internal sealed class DesktopUiAutomation : IDesktopUi, IAsyncDisposable
+internal sealed class DesktopUiAutomation : IDesktopUi, Browser.IBrowserDialogs, IAsyncDisposable
 {
     private readonly NeoAutomation _automation;
 
@@ -73,6 +73,44 @@ internal sealed class DesktopUiAutomation : IDesktopUi, IAsyncDisposable
         foreach (var page in _automation.Pages)
         {
             if (string.Equals(page.View.ViewLabel, viewLabel, StringComparison.Ordinal)) return page.Id;
+        }
+
+        return null;
+    }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// An automation takes the JavaScript dialogs of every page it drives, whoever made the page open one: the
+    /// page shows nothing by itself. What the page waits in is told here, for who shows it to the user.
+    /// </remarks>
+    public Browser.BrowserDialog? Find(string viewLabel)
+    {
+        ArgumentNullException.ThrowIfNull(viewLabel);
+        return Page(viewLabel)?.Dialog is { } dialog ? Browser.BrowserDialog.Create(dialog.TypeName, dialog.Message, dialog.DefaultText) : null;
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<bool> AnswerAsync(string viewLabel, bool accept, string? text)
+    {
+        ArgumentNullException.ThrowIfNull(viewLabel);
+        if (Page(viewLabel) is not { } page) return false;
+        try
+        {
+            await page.HandleDialogAsync(accept, text).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception exception) when (exception is NeoAutomationException or ObjectDisposedException)
+        {
+            // The dialog was answered meanwhile, by a tool or by its time running out, or the page is gone.
+            return false;
+        }
+    }
+
+    private NeoAutomationPage? Page(string viewLabel)
+    {
+        foreach (var page in _automation.Pages)
+        {
+            if (string.Equals(page.View.ViewLabel, viewLabel, StringComparison.Ordinal)) return page;
         }
 
         return null;

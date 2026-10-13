@@ -144,7 +144,7 @@ export const storage = Object.freeze({
 export const terminals = Object.freeze({ acknowledge: unavailable, attach: unavailable, close: unavailable, create: unavailable, detach: unavailable, input: unavailable,
   open: unavailable, profiles: unavailable, rename: unavailable, resize: unavailable, show: unavailable, watch: unavailable });
 // A browser preview has no native view to show a page in.
-export const browser = Object.freeze({ capture: unavailable, close: unavailable, command: unavailable, move: unavailable, navigate: unavailable, open: unavailable,
+export const browser = Object.freeze({ answerDialog: unavailable, capture: unavailable, close: unavailable, command: unavailable, move: unavailable, navigate: unavailable, open: unavailable,
   place: unavailable, release: unavailable, select: unavailable, state: unavailable, watch: unavailable });
 // The demo starts no session by itself: its automations tab says so.
 const noAutomations = async () => ({ status: "unavailable", paused: false, scanned: false, items: [], faults: [], runs: [], upcoming: [] });

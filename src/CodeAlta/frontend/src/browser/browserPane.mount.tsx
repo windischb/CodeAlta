@@ -8,7 +8,7 @@ import type { BrowserHub } from "./browserHub";
 import type { BrowserBounds } from "./browserPlacement";
 import { createNativeViewOcclusion } from "./nativeViewOcclusion";
 
-const page = (id: string, more: Partial<BrowserPageItem> = {}): BrowserPageItem => ({ id, address: `https://example.com/${id}`, title: `Page ${id}`, loading: false, canGoBack: false, canGoForward: false, live: true, ...more });
+const page = (id: string, more: Partial<BrowserPageItem> = {}): BrowserPageItem => ({ id, address: `https://example.com/${id}`, title: `Page ${id}`, loading: false, canGoBack: false, canGoForward: false, live: true, dialog: null, ...more });
 // A host that keeps what the pane asks and answers as the test says: no view is placed anywhere.
 const state = {
   session: { sessionId: "fixture", pages: [page("a", { canGoBack: true }), page("b")], activePageId: "a" } as BrowserSessionItem | null,
@@ -36,6 +36,7 @@ const hub: BrowserHub = {
   move: (sessionId, pageId, index) => answer("move", sessionId, pageId, index),
   navigate: (sessionId, pageId, address) => answer("navigate", sessionId, pageId, address),
   command: (sessionId, pageId, command) => answer("command", sessionId, pageId, command),
+  answerDialog: (sessionId, pageId, accept, text = null) => answer("answerDialog", sessionId, pageId, accept ? "accept" : "dismiss", text ?? ""),
   place: (_sessionId, bounds) => { state.places.push(bounds); },
   release: sessionId => { state.calls.push(`release ${sessionId}`); },
   capture: (sessionId, pageId) => { state.calls.push(`capture ${sessionId} ${pageId}`); return Promise.resolve(state.still ? { image: state.still, width: 1, height: 1 } : null); },

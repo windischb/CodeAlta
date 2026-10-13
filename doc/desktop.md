@@ -3927,6 +3927,18 @@ in `Desktop/Browser/` (the pages and their views, the tools of the sessions and 
   window while a page has it: a click in the window takes it back. Enter in the address field gives the
   keyboard to the page. A window that is used again after another application gives the keyboard to the page
   that had it, and a page that is hidden while it has the keyboard gives it back to the window.
+- **Dialogs of a page.** `alert`, `confirm`, `prompt` and the question before a document is left are shown in
+  the browser part, not by the browser: the automation of the browser views takes them (see "Browser tools"),
+  so a page shows none by itself. The host tells the dialog of each page with the page (`BrowserPageItem.dialog`:
+  the kind, the message and the default text, 4000 characters each at most), read from the automation with the
+  rest of what a view shows. While the page in front waits in one, its view is hidden and its place shows the
+  dialog (`BrowserDialog.tsx`): "*host* says", the message, **OK**, **Cancel** except for an alert, a field for a
+  prompt, **Leave** and **Stay** before a document is left. Enter accepts and Escape dismisses
+  (`browser.answerDialog`); the page then takes the keyboard back. The keyboard goes to the dialog when the
+  page or the browser part had it, and stays with what is typed elsewhere in the window. A page behind that
+  waits in a dialog has a dot on its tab. A tool of the session can answer as well: whoever is first answers,
+  and the dialog goes from the pane. A page waits ten minutes for an answer, the longest NeoAstra allows
+  (`WebViewBrowserViews.DecisionTimeout`); then an `alert` is accepted and the others are cancelled.
 - **Kept and let go.** The pages of a session (addresses, titles, order, the one in front) are kept in
   `browser/<session id>/pages.json` under the state of the instance, read when the browser of the session is
   first asked for, and removed when the session is deleted. A page keeps its view while its session is not
@@ -3935,7 +3947,7 @@ in `Desktop/Browser/` (the pages and their views, the tools of the sessions and 
   the retention of sessions removes leaves its small `pages.json` behind.
 - **Limits.** Windows only: on macOS and Linux the part says that this system has no browser. A click in a
   page does not make its pane the active one. The tools that see and drive the window (below) do not list
-  these pages. A dialog of JavaScript (`alert`, `confirm`, `prompt`) is not shown: see "Dialogs" below.
+  these pages.
 
 ### Browser tools
 
@@ -3998,10 +4010,11 @@ and `DesktopBrowserPlugin.cs` (the plugin `browser`).
 - **Files.** As for the tools of the window: `filePath` of `browser_take_screenshot` and
   `browser_take_snapshot` is relative to the folder the session works in, and the files the other tools read
   are in the folder `browser-tools`.
-- **Dialogs.** While automation is on, a dialog of JavaScript goes to the automation and not to the browser:
-  it is not shown. The page waits until `browser_handle_dialog` answers it, for at most 30 seconds
-  (`NeoAstraOptions.DecisionTimeout`); then an `alert` is accepted and a `confirm` or a `prompt` cancelled.
-  This holds for every page of every session, also one the user browses by hand.
+- **Dialogs.** While automation is on, a dialog of JavaScript goes to the automation and not to the browser,
+  for every page of every session, also one the user browses by hand. The automation is therefore where the
+  browser part learns of a dialog to show (`IBrowserDialogs`, which `DesktopUiAutomation` implements; see
+  "Dialogs of a page" above). `browser_handle_dialog` and the user in the pane answer the same dialog, and the
+  first answer counts: the other finds none ("No open dialog found" for the tool, nothing for the user).
 - **Limits.** Those of the automation: input is dispatched as DOM events (`isTrusted` is false), so CSS
   `:hover` does not apply, a native list or popup does not open, and what needs a gesture of the user does not
   react. The user can always act in the page himself. The tools do not show the browser part of a session:

@@ -3,7 +3,7 @@ import test from "node:test";
 import type { BrowserEvent, BrowserPageItem, BrowserReply, BrowserSessionItem } from "#neoastra";
 import { createBrowserHub, reconnectMilliseconds, type BrowserApi } from "./browserHub";
 
-const page = (id: string, more: Partial<BrowserPageItem> = {}): BrowserPageItem => ({ id, address: `https://example.com/${id}`, title: id, loading: false, canGoBack: false, canGoForward: false, live: true, ...more });
+const page = (id: string, more: Partial<BrowserPageItem> = {}): BrowserPageItem => ({ id, address: `https://example.com/${id}`, title: id, loading: false, canGoBack: false, canGoForward: false, live: true, dialog: null, ...more });
 const browserOf = (sessionId: string, pages: BrowserPageItem[], activePageId: string | null = pages[0]?.id ?? null): BrowserSessionItem => ({ sessionId, pages, activePageId });
 const ready = (supported = true): BrowserEvent => ({ kind: "ready", supported, session: null });
 const told = (session: BrowserSessionItem): BrowserEvent => ({ kind: "session", supported: true, session });
@@ -36,7 +36,7 @@ function fixture() {
       })());
     },
     state: reply("state"), open: reply("open"), close: reply("close"), select: reply("select"), move: reply("move"),
-    navigate: reply("navigate"), command: reply("command"), release: reply("release"),
+    navigate: reply("navigate"), command: reply("command"), release: reply("release"), answerDialog: reply("answerDialog"),
     place: (request: object) => {
       calls.push(`place ${JSON.stringify(request)}`);
       return new Promise<BrowserReply>(resolve => placements.push((status = "ok") => resolve({ status, session: null, pageId: null })));
@@ -93,6 +93,40 @@ test("the page is told whether the system has browsers, and the browser of each 
   await settle();
   assert.equal(hub.session("s1")?.pages[0].loading, true);
   assert.equal(changes, seen + 1);
+  stop();
+});
+
+test("a JavaScript dialog of a page is told as it opens and goes, and answered through the host", async () => {
+  const { hub, watches, take, answers } = fixture();
+  hub.ensure("s1");
+  const stop = hub.connect("epoch");
+  await settle();
+  watches[0].push(ready());
+  watches[0].push(told(browserOf("s1", [page("a"), page("b")])));
+  await settle();
+  take();
+  let changes = 0;
+  hub.subscribe(() => { changes++; });
+  const asking = { kind: "prompt", message: "Your name?", defaultText: "Ada" };
+  watches[0].push(told(browserOf("s1", [page("a", { dialog: asking }), page("b")])));
+  await settle();
+  assert.deepEqual(hub.session("s1")?.pages[0].dialog, asking);
+  assert.equal(changes, 1);
+  // The same dialog told again is no change; another message is.
+  watches[0].push(told(browserOf("s1", [page("a", { dialog: { ...asking } }), page("b")])));
+  await settle();
+  assert.equal(changes, 1);
+  watches[0].push(told(browserOf("s1", [page("a", { dialog: { ...asking, message: "Your age?" } }), page("b")])));
+  await settle();
+  assert.equal(changes, 2);
+  // The answer goes to the host, whose reply says the dialog is gone.
+  answers.set("answerDialog", { status: "ok", session: browserOf("s1", [page("a"), page("b")]), pageId: null });
+  assert.equal((await hub.answerDialog("s1", "a", true, "Grace")).status, "ok");
+  assert.equal((await hub.answerDialog("s1", "a", false)).status, "ok");
+  assert.deepEqual(take(), ['answerDialog {"expectedEpoch":"epoch","sessionId":"s1","pageId":"a","accept":true,"text":"Grace"}',
+    'answerDialog {"expectedEpoch":"epoch","sessionId":"s1","pageId":"a","accept":false,"text":null}']);
+  assert.equal(hub.session("s1")?.pages[0].dialog, null);
+  assert.equal(changes, 3);
   stop();
 });
 

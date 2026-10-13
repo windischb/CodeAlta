@@ -5,6 +5,7 @@ import { ActivitySpinner } from "../ActivitySpinner";
 import { AppIcon } from "../AppIcon";
 import type { MessageKey } from "../localization";
 import { useShellLanguage } from "../shellLanguage";
+import { BrowserDialog } from "./BrowserDialog";
 import type { BrowserHub, BrowserStill } from "./browserHub";
 import { deviceBounds, sameBounds, type BrowserBounds } from "./browserPlacement";
 import type { NativeViewOcclusion } from "./nativeViewOcclusion";
@@ -34,6 +35,9 @@ export const shownAddress = (page: BrowserPageItem | null | undefined) => !page 
  * the page in front. The page itself is not drawn here. It is a native view of the host, which lies above
  * the window's own page: this component leaves an empty placeholder and says where it is. `shown` is true
  * only while the pane of the session is the one the window shows.
+ *
+ * A page that waits in a JavaScript dialog shows nothing by itself: the placeholder shows the dialog, and the
+ * view is hidden meanwhile, since it would cover it.
  */
 export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActivate }: {
   hub: BrowserHub; occlusion: NativeViewOcclusion; sessionId: string; shown: boolean;
@@ -56,6 +60,13 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
   // What the loops below read without starting again: the page in front, and whether its view can be seen.
   const frontPage = useRef(frontId);
   frontPage.current = frontId;
+  // Whether the place of the page shows the dialog its page waits in, instead of the page.
+  const asking = !!front?.dialog;
+  const dialogShown = useRef(asking);
+  dialogShown.current = asking;
+  // The page whose dialog was answered here: it takes the keyboard back once its view is shown again.
+  const answered = useRef<string | null>(null);
+  const pane = useRef<HTMLElement>(null);
   const visible = useRef(false);
   const lastStill = useRef(Number.NEGATIVE_INFINITY);
 
@@ -71,7 +82,7 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
     let placed: BrowserBounds | null | undefined;
     const look = () => {
       const element = placeholder.current;
-      const box = element && frontPage.current ? element.getBoundingClientRect() : null;
+      const box = element && frontPage.current && !dialogShown.current ? element.getBoundingClientRect() : null;
       const hidden = !!box && occlusion.occludes(box, element);
       const bounds = box && !hidden ? deviceBounds(box, window.devicePixelRatio) : null;
       visible.current = !!bounds;
@@ -79,6 +90,11 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
       if (placed !== undefined && sameBounds(placed, bounds)) return;
       placed = bounds;
       hub.place(sessionId, bounds);
+      // The page whose dialog the user answered is typed in again, as it was before it asked.
+      if (bounds && answered.current) {
+        if (answered.current === frontPage.current) void hub.command(sessionId, answered.current, "focus");
+        answered.current = null;
+      }
     };
     const loop = () => { look(); frame = requestAnimationFrame(loop); };
     const unsubscribe = occlusion.subscribe(look);
@@ -144,6 +160,10 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
   }
   const select = (page: string) => { if (page !== frontId) void hub.select(sessionId, page).then(reply => said(reply.status)); };
   const close = (page: string) => void hub.close(sessionId, page).then(reply => said(reply.status));
+  const answerDialog = (page: string, accept: boolean, text: string | null) => {
+    answered.current = page;
+    return hub.answerDialog(sessionId, page, accept, text).then(reply => said(reply.status));
+  };
   const ask = (command: "back" | "forward" | "reload" | "stop" | "devtools") => {
     if (frontId) void hub.command(sessionId, frontId, command).then(reply => said(reply.status));
   };
@@ -179,7 +199,7 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
     aria-label={t("Close the browser")} title={t("Close the browser")} onClick={onClose} />;
   const title = (page: BrowserPageItem) => page.title || shownAddress(page) || t("New page");
 
-  return <section className="browser-pane" aria-label={t("Browser")} data-shown={shown} onFocusCapture={onActivate} onPointerDownCapture={onActivate}>
+  return <section className="browser-pane" ref={pane} aria-label={t("Browser")} data-shown={shown} onFocusCapture={onActivate} onPointerDownCapture={onActivate}>
     {supported === false
       ? <div className="browser-bar">
         <p className="browser-unsupported" role="status">{t("This system cannot show a browser inside the window.")}</p>
@@ -195,6 +215,7 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
                 onClick={() => select(page.id)} onKeyDown={event => tabKey(event, index)}>
                 {page.loading ? <ActivitySpinner size={11} label={t("Loading…")} /> : <AppIcon name="globe" size={12} />}
                 <span>{title(page)}</span>
+                {page.dialog && page.id !== frontId && <span className="browser-tab-mark" role="img" aria-label={t("This page asks a question")} title={t("This page asks a question")} />}
               </button>
               <button type="button" className="browser-tab-close" tabIndex={-1} aria-label={`${t("Close page")}: ${title(page)}`} title={t("Close page")} onClick={() => close(page.id)}>
                 <AppIcon name="close" size={12} />
@@ -216,9 +237,11 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
         </div>
         {notice && <p className="browser-notice" role="status">{t(notice)}</p>}
         {front
-          ? <div className="browser-view" ref={placeholder} data-covered={covered}>
+          ? <div className="browser-view" ref={placeholder} data-covered={covered} data-dialog={asking}>
             {/* Drawn only while the view is hidden: the view itself covers this place otherwise. */}
-            {covered && (still?.page === front.id
+            {front.dialog && <BrowserDialog key={`${front.id} ${front.dialog.kind} ${front.dialog.message}`} dialog={front.dialog} address={front.address} pane={pane.current}
+              onAnswer={(accept, text) => answerDialog(front.id, accept, text)} />}
+            {!front.dialog && covered && (still?.page === front.id
               ? <img className="browser-still" src={still.image} alt="" aria-hidden />
               : <div className="browser-covered">
                 <strong>{title(front)}</strong>

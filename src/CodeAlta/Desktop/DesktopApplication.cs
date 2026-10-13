@@ -354,6 +354,9 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             // host, whose plugins give the sessions the tools that drive them; no view is created before a session asks.
             var browserViews = new Browser.WebViewBrowserViews(application, startedWindow, Path.Combine(options.DataRoot, "webview-browser"));
             browserViewsLifetime = browserViews;
+            // The automation of the browser views takes the JavaScript dialogs of their pages: the views tell of them,
+            // so that the pane of the session shows a dialog and the user answers it there.
+            browserViews.Dialogs = browserUi;
             var sessionBrowsers = new Browser.DesktopBrowsers(browserViews, new Browser.BrowserFileStore(Path.Combine(catalog.StateRoot, "browser")));
             browsers = sessionBrowsers;
             var browserTools = new Browser.DesktopBrowserTools(browserUi, sessionBrowsers, browserSessions, browserUi.FindPage);
