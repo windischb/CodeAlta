@@ -1,0 +1,204 @@
+---
+title: Embedded browser with element annotations and agent control
+status: in-progress
+created: 2026-10-13
+summary: Give each session of CodeAlta Desktop a browser of its own with several pages (native views in the session pane), let the user annotate single elements of a page with change requests that agents read, and give sessions tools to drive that browser.
+---
+
+# Embedded browser with element annotations and agent control
+
+## Goal
+
+A tab of CodeAlta Desktop shows a real web page, typically the user's own application on `localhost`. The user points at an element and writes what should change. A session reads these annotations, with enough about each element to find it in the source, and can also drive the page itself: navigate, click, fill, read the console and the network, take snapshots and screenshots.
+
+Desktop only. No TUI screen, dialog, command or setting (`AGENTS.md`). The shared `alta` tool gets a `browser` command group that only a host with a browser registers, as `alta terminal` does (`IAltaTerminals`, `src/CodeAlta.LiveTool/AltaTerminals.cs`).
+
+Nothing was changed during research. This plan is a draft: the decisions of the next section are the user's.
+
+## Decisions
+
+| # | Decision | Answer | Why |
+| --- | --- | --- | --- |
+| 1 | Where the browser lives | **Decided by the user (2026-10-13): the browser belongs to a session.** It is a pane of the session, not a tab of the main area. Another session in front: its browser is not there. Back to the session: the browser is there again, as it was. A session can have several pages open, so the pane has a tab strip of its own. | As a tab of the main area nobody could tell which session a browser belongs to. |
+| 2 | Whom annotations belong to | **The session** (follows from 1; recommended, to confirm). Kept in the application state, not in the repository. | The annotations are made in the browser of a session and are that session's work list. A screenshot per annotation does not belong in git. |
+| 3 | Which addresses load | **Any `http`/`https` address** (recommended, to confirm), with the profile and the process of the browser isolated from the window's | A localhost-only rule breaks sign-in redirects, CDNs and documentation pages at once. The isolation below is what protects the application, not the address. |
+| 4 | NeoAstra | **Windows first, on NeoAstra 1.3.1 as released** (recommended, to confirm), with the missing view API proposed upstream | NeoAstra is a package (`src/Directory.Packages.props:12`) of another repository (`github.com/NeoAstra/NeoAstra`); the feature should not wait for a release of it. macOS and Linux follow when the API exists. |
+
+## What research established
+
+**Automation is already there.** The UI tools wrap `NeoAutomation` (`src/CodeAlta/Desktop/Ui/DesktopUiAutomation.cs:39`), which has the tool set of Chrome DevTools MCP and makes every view of the application a page.
+
+- `NeoAutomationOptions.PageFilter` selects which views are pages and `NewPageHandler` creates the view of `new_page` (`../NeoAstra/src/NeoAstra.Core/Automation/NeoAutomationTypes.cs:14,21`).
+- Today the window's automation has no filter: a second view would silently become a page of `alta ui` and of the `codealta-dev` MCP server. That must be closed in the same change that creates the first browser view.
+- The automation works inside the page with a script in the page's own world (`window.__neoastraAutomation`, `NeoAutomationAgent.cs:14`), called through `EvaluateScriptAsync`. It needs no bridge. Input is dispatched DOM events (`isTrusted` false): no CSS `:hover`, no native popups (`../NeoAstra/doc/browser-automation.md`, "How it differs").
+- One automation has one selected page for all its callers (`NeoAutomation.cs:29`).
+
+**A second view in the window is possible, moving it is not exposed.**
+
+| Need | NeoAstra 1.3.x | Evidence |
+| --- | --- | --- |
+| Create a view with its own rectangle, label, profile, no bridge | Yes | `NeoAstraOptions.FillParent`, `Bounds`, `ViewLabel`, `Profile`, `BridgePolicy` (`NeoOptions.cs:436-474`); two views on one window in `NeoAstra.NativeAotFixture/Program.cs:36` |
+| Change the rectangle later | Native only | `neoastra_view_set_bounds` exists (`native/include/neoastra.h:292`) and is implemented for WebView2 and WKWebView; **no managed method calls it** (`NeoAstra.cs` has none) |
+| Position on Linux | No | the GTK backend only sets a size request (`gtk_backend.cpp:595`); the view is an overlay child without an offset |
+| Hide and show one view | No | visibility follows the window (`sync_window_view_visibility`, `windows_backend.cpp:399-408`), which also shows every view again when the window is shown |
+| Give one view the keyboard | No | CodeAlta already calls `ICoreWebView2Controller::MoveFocus` through the COM table of the borrowed controller (`src/CodeAlta/Desktop/DesktopWindowFocus.cs:14,78`) |
+| Script at document creation, script evaluation, capture, navigation and new-window decisions | Yes | `AddScriptAsync`, `EvaluateScriptAsync`, `CaptureAsync`, `NavigationRequested`, `NewWindowRequested`, `PermissionRequested`, `DownloadRequested` (`NeoAstra.cs:102-111,225,270,426`) |
+
+`NeoNativeHandleKind.WebView2Controller` gives CodeAlta the controller, so on Windows `put_Bounds` and `put_IsVisible` can be called the way `MoveFocus` already is. That is the route for decision 4.
+
+**The page of the window has no iframe browsing**, and an iframe cannot be the answer: it cannot be driven across origins and many sites refuse framing.
+
+**The session pane.** A session is shown in a pane of its own, and things already travel with that pane: the Notes overlay "travels with that session pane" (`doc/desktop.md`, "Notes"). The browser becomes a part of that pane. Terminals are the model for host-side state with an id that the page watches (`Desktop/Terminals/DesktopTerminals.cs`, `Desktop/Rpc/TerminalsRpc.cs`, `DesktopAltaTerminals.cs`).
+
+## Design
+
+### 1. The browser of a session
+
+A host service `DesktopBrowsers` (`src/CodeAlta/Desktop/Browser/`) owns, for each session, an ordered list of pages: an id, the view, its address, title, loading state and history flags, and which page is in front. It is the single writer of that state and runs on the UI thread of the window; the page hears of changes through one `browser.watch` channel, as terminals and canvases do.
+
+- **In the session pane.** The pane of a session gets a browser part at the right of its timeline and composer, with a splitter; a button of the session's header opens and closes it (with a count of open annotations). Its top is a strip of the session's pages (title, favicon, close, **+**), then the toolbar, then the page. The width and whether it is open are kept per session.
+- **Follows the session.** Only the page in front of a session that is shown has a visible native view. Another session in front hides the views of this one without ending them: scroll position, form input and sign-in are as they were on return. Two session panes side by side each show their own browser.
+- **Lifetime.** Pages live as long as the session is open in the window. A session whose tab is closed, archived or deleted ends its views; the addresses of its pages are kept with the session and loaded again when it is opened, also after a restart. To bound memory, the views of sessions that have not been shown for a while are let go beyond a limit (kept: the address; lost: the state of the page); the limit is settled in the spike.
+- **Sub-agents.** A child session has a browser of its own, empty until it opens a page. Nothing is shared between sessions but the profile (cookies, sign-in).
+
+- **Isolation.** The views are created on an **environment of their own** (`application.CreateEnvironmentAsync` with `UserDataRoot = <DataRoot>/webview-browser`, no custom scheme): another browser process, other cookies and storage, and no `app://` scheme, so a foreign page can neither load nor frame the application. If a second environment in one process proves unusable (spike, step 0.3), the fallback is a named profile on the window's environment plus a navigation rule that refuses `app:`.
+- **No bridge.** `BridgePolicy = Disabled`. The RPC of the window does not exist in these views.
+- **Decisions.** `NavigationRequested` allows `http`, `https` and `about:blank`; everything else is cancelled (`file:`, `app:`, `javascript:` typed in the address bar). `NewWindowRequested` loads the address in a new page of the same session. `PermissionRequested` denies; `DownloadRequested` cancels in the first version, with a notice. Certificate errors are refused, with the engine's error page.
+- **Browser features.** Context menu, DevTools, history navigation and zoom on: this is a browser, unlike the application shell (`NeoBrowserFeatures.ApplicationShell()`).
+- **Labels.** `ViewLabel = "browser:<page id>"`; the service knows the session of each page. The window's automation gets `PageFilter = view => view.ViewLabel?.StartsWith("browser:") != true`.
+
+### 2. Placing a native view over the page
+
+The native view lies above everything the React page draws. The page owns the layout, the host owns the view.
+
+- `BrowserPane` (`src/CodeAlta/frontend/src/browser/`) draws the strip of pages, the toolbar (back, forward, reload/stop, address, **Annotate**, the annotations list, DevTools) and an empty placeholder. It reports the placeholder's rectangle to the host (`browser.place`) from a `ResizeObserver` and a coalesced animation frame: CSS pixels plus `devicePixelRatio`, which in WebView2 already includes the zoom of the window's view. The host converts to the units the backend takes and verifies the result on a scaled display (step 0.2).
+- **Hidden** when its session is not shown, when another page of the session is in front, when the browser part is closed, while a splitter or a tab is dragged, and while anything of the page has to appear above it: a dialog, a menu, the command palette, a tooltip that crosses it. One shell-level signal (`nativeViewOcclusion`) is raised by those components; step 1.4 inventories them. While hidden for an overlay, the placeholder shows the last capture of the view (`CaptureAsync`) so the tab does not flash empty.
+- **Window show.** NeoAstra shows every view when the window is shown again; the service applies its own visibility after `NeoWindow` visibility changes.
+- **Keyboard.** `DesktopWindowFocus.Follow` gives the keyboard to the window's view when the window is used again. It must give it to the view that had it last. A click in the browser view takes the focus by itself; a shortcut of the window (`Ctrl+Shift+P`, tab switching) does not reach the shell while the browser has the keyboard: the first version documents this and offers `Esc`-less ways back (click in the shell, toolbar). A later step can forward chosen accelerators.
+
+A small interface `IBrowserViewPlacement` (set bounds, set visible, focus) hides how this is done. Windows implements it over the borrowed controller, creates the view on the raw `HWND` of the window and raises its child window once (see "Spike results"). When NeoAstra has `SetBounds`/`IsVisible`/`Focus`, one implementation over them replaces it and serves macOS and Linux. Until then the browser is offered on Windows only: elsewhere the command and `alta browser` answer `browser.unsupported`.
+
+**Proposed to NeoAstra** (issue or pull request, not a blocker): a managed `NeoAstra.SetBounds(NeoRect)` over the existing native call, `NeoAstra.IsVisible` with a per-view flag that the window's show/hide respects, positioning of a non-filled view on GTK, `NeoAstra.Focus()`, and a statement of the units of view bounds (see "Bounds in device pixels" in `doc/open-follow-ups.md`).
+
+### 3. Agent control
+
+A second `NeoAutomation` on the same application, with `PageFilter` taking only `browser:` views and `NewPageHandler = DesktopBrowsers.CreateForAutomation`. The two automations never share a view. `AllowedDirectories` is a `browser` folder of the data root, with the same staging of `filePath` as the UI tools (`DesktopUiAutomation.CallAsync`).
+
+- **Tools.** The Chrome DevTools MCP set with a `browser_` prefix (`browser_take_snapshot`, `browser_click`, `browser_navigate_page`, `browser_new_page`, …), because a session can hold the UI tools at the same time and their names would collide. `new_page` and `close_page` are included here: they open and close pages of the browser of the calling session.
+- **Activation.** `alta browser activate` / `deactivate` / `status`, built like `alta ui` (`DesktopUiPlugin.cs`): the tools join the running turn and come with later runs. A built-in plugin `browser` carries the commands, the tools and one line of the instructions ("Browser: inactive…", which pages the session has open and how many open annotations).
+- **A session drives its own browser only.** The wrapper lists, selects and addresses only the pages of the calling session (`list_pages` is filtered, a `pageId` of another session is "No page found"), and keeps the selected page of each session itself. Sessions cannot get in each other's way, and what an agent does happens where the user looks for it: in the browser of that session. A page the agent opens appears in the strip of its session; the browser part opens by itself only when the session is in front.
+- **A session that is not shown.** Its views are hidden. Snapshots, input, console and network work there (the automation clocks itself, `browser-automation.md` "Waiting"); a screenshot needs a visible view on Windows. The spike settles whether a hidden view can be captured by keeping it placed out of sight; otherwise `browser_take_screenshot` answers that the session has to be shown.
+- **Reviewed sessions.** The reason the UI tools are refused (a session could answer its own review in the window) does not apply: the browser view is not the window. What applies is the rule of terminals (`IAltaTerminals.AcceptsInput`): a session whose commands the user reviews gets the reading tools (`take_snapshot`, `take_screenshot`, console, network, `list_pages`, annotations) and is refused the acting ones (`click`, `fill`, `type_text`, `press_key`, `navigate_page`, `new_page`, `evaluate_script`, `upload_file`). Wiring acting tools into the permission review is a later step.
+- **MCP server.** After the first version the desktop MCP server offers the same tools (`DesktopMcpTools`). Its caller is no session, so each call names the session whose browser it means.
+
+### 4. Annotations
+
+**Picking, without a bridge.** A script of CodeAlta is added to browser views at document start (`AddScriptAsync`). It does nothing until the host turns pick mode on with `EvaluateScriptAsync`. Then it outlines the element under the pointer, and a click (captured, not delivered to the page) stores a description of the element. The host polls for it on its own clock while pick mode is on, as the automation does for its jobs; `Esc` or the toolbar ends the mode.
+
+- **The text is typed in CodeAlta, not in the page.** After a pick the browser part shows its annotations list (part of the React page, below the placeholder, which shrinks) with the element's summary, its cropped screenshot and a text field. Only **Save** there creates an annotation. A page can therefore lie about the element it reports, but cannot create an annotation or write its text.
+- **What is recorded.** The address and title; a CSS selector (an `id`, `data-testid` or other stable attribute where there is one, a structural path otherwise) and the chain of ancestors; tag, role and accessible name; the visible text (shortened); the opening tag; the rectangle and the viewport size; a PNG of the element with some margin (`CaptureAsync` with a region). Second step: source hints the frameworks leave in development builds (React `_debugSource`, Vue `__file`, `data-*` source attributes), which is what finds the component fastest.
+- **Markers.** For the open annotations of the address shown, the script draws numbered badges at the elements their selectors still find. They are decoration: an annotation whose element is gone stays in the list, marked "not found on this page".
+
+**Storage.** `BrowserAnnotations`, a single-writer service over one file per session in the application state (`<StateRoot>/browser/<session id>/annotations.json`, screenshots and the list of pages beside it), so the developer instance has its own. An annotation has an id, a number, the text, the element record, `open` or `resolved`, and who resolved it with an optional note. Nothing is cleared on navigation. The folder goes with its session: deleted with it, by hand or by retention (`doc/session-retention-runtime.md`), and counted on Settings > Storage.
+
+**How an agent gets them.** Always those of its own session.
+
+- `alta browser annotations list [--status open|resolved|all] [--url]`, `show <id>`, `resolve <id> [--note]`, `reopen <id>`; `--session <id>` reads those of another session (a parent reading a child's, or the reverse). Text only.
+- `browser_get_annotation` (among the activated tools) returns the record with its screenshot, since an `alta` command cannot return an image.
+- **Add to prompt** in the annotations list puts the open annotations into the composer of the session: the texts, the element records and the screenshots as prompt images (`doc/prompt-images.md`). The user completes and sends it; nothing is sent by itself.
+- The line of instructions says how many open annotations the session has, so a session asked to "fix what I marked" finds them.
+
+**Untrusted content.** The element record is text of a foreign page. Everywhere it reaches a model it is delimited and labelled as page content ("Element as the page reports it"), apart from the user's own text. The same holds for snapshots and console messages, which already reach the model through the tools; the tool descriptions say so.
+
+## Steps
+
+### Phase 0: Spike (Windows, throwaway code allowed)
+
+Done on 2026-10-13 with `src/prototypes/CodeAlta.Browser.Spike` (NeoAstra 1.3.1, WebView2, Windows 11 arm64, display at 100%). See "Spike results" below.
+
+- [x] 0.1 A second view on the window of the main view, with a rectangle of its own, above the main view.
+- [x] 0.2 Move, resize and hide it through the borrowed `ICoreWebView2Controller`; window hide/show, maximize and restore. **Not measured: a display scaled to 150% and a changed window zoom** (this computer has neither); to do in 1.1 on such a display.
+- [x] 0.3 A second environment with its own user-data root in the same process.
+- [x] 0.4 Two `NeoAutomation` instances with disjoint filters.
+- [x] 0.5 Ten hidden views beside one shown: memory, start time, suspending, captures of views that are not shown.
+- [ ] 0.6 Open the NeoAstra issue with the API of section 2 (an outward step: only when the user says so).
+
+#### Spike results
+
+| Question | Result |
+| --- | --- |
+| Parent of a browser view | `NeoAstraHost.FromWin32Hwnd(<HWND of the window>)` with `FillParent = false`. With `NeoAstraHost.FillWindow(window)` the view is always fitted to the window, whatever `FillParent` says (`NeoEnvironment.cs:137`), and shown again with it. |
+| Initial rectangle | Taken as given: 500x400 at (600,100) gives a page of 500x400 CSS pixels at scale 1. |
+| Z-order | **A view created later lies under the main view.** One `SetWindowPos(child, HWND_TOP, …)` on its child window (`Chrome_WidgetWin_0`) puts it above. It stayed above through a focus move to the main view, maximize, restore, window hide/show, a repaint of the main page, and hide/show of the view. Hit testing inside its rectangle gives the browser view. |
+| Move and resize | `put_Bounds`: 0.2 to 0.4 ms a call; the page follows (900x400 CSS pixels). The rectangle is kept through maximize and restore. |
+| Hide and show | `put_IsVisible`: 1 to 5 ms; `document.visibilityState` follows. With the raw `HWND` as parent NeoAstra does not show the view again after a window hide/show. |
+| Second environment | Works: two browser processes in one application process. Its first page costs about 150 MB of private memory (browser, GPU, two utility processes and one renderer), as much as the main environment of the spike. |
+| Two automations | Each lists one page and snapshots its own document only; a click, the console messages and a `confirm` dialog stay with their automation. A **hidden** view takes snapshots and clicks. |
+| Capture | 80 to 125 ms for 900x400 and 1200x800. A hidden view cannot be captured ("A WebView2 view must be visible"); **a visible view placed outside the client area can**, in the same time. |
+| Memory of hidden views | Ten more hidden views were created and loaded in 1.25 s. A small page costs about 27 MB of private memory a view; ten real sites (example.com, react.dev, github.com, MDN, vite.dev, twice each) about 68 MB a view on average, 829 MB for the environment. Disposing them gives the memory back. |
+| Suspend (`ICoreWebView2_3.TrySuspend`) | All ten hidden views suspended; shown again in 8 ms with the state of the page kept. **Memory after five seconds: 788 MB instead of 829 MB.** Suspending stops the scripts of a page; it is not what bounds memory. |
+
+What follows for the design:
+
+- The placement of section 2 is feasible on Windows with NeoAstra as released: the raw `HWND` as parent, the controller for bounds and visibility, and one raise of the child window after creation (the child is the one that was not there before the view was created).
+- The limit of live views stays the tool for memory, at about 30 to 70 MB a page. Suspending is optional and comes later, to quiet pages that run timers.
+- A screenshot for a session that is not shown is possible: make the view visible outside the client area for the capture, then hide it again.
+- The still image costs about 100 ms: it is taken when an overlay is about to cover the view, not kept up to date in the background. Step 1.4 decides whether that delay is acceptable for menus, or whether those show the plain placeholder.
+### Phase 1: The browser of a session
+
+- [ ] 1.1 `DesktopBrowsers` (pages per session, the page in front, the limit of live views) and `IBrowserViewPlacement` (Windows), the isolation and the decisions of section 1; the window's automation filter. Tests: service state, navigation rule, label filter, pages ended with their session (`CodeAlta.Desktop.Tests`).
+- [ ] 1.2 `BrowserRpc` (`open`, `close`, `select`, `move`, `navigate`, `back`, `forward`, `reload`, `stop`, `place`, `watch`, `openDevTools`), each naming the session, and the typed client.
+- [ ] 1.3 The browser part of the session pane: `BrowserPane` with its strip of pages, the splitter, the button of the session header, the command **Browser** (`/browser`, for the session in front), width and open state per session. Find where the session pane is composed in `main.tsx` and how Notes attaches to it. Tests: pane unit tests, a `*.browser.test.ts` for placement reports with a fake host and for switching between two sessions.
+- [ ] 1.4 Occlusion: inventory dialogs, menus, palette, tooltips, Notes and proposal overlays, splitter and tab drag; raise one signal; still image while hidden.
+- [ ] 1.5 Keyboard focus between the views; `DesktopWindowFocus` follows the last focused view.
+- [ ] 1.6 Persistence: the pages of a session (addresses, order, the one in front) kept with the session and restored when it is opened; removed with it.
+- [ ] 1.7 Verify in the developer instance (`codealta-dev`): both themes, a narrow window (the browser part over the timeline instead of beside it below a width), two sessions side by side, session switch, space switch, restart.
+
+### Phase 2: Agent control
+
+- [ ] 2.1 The browser automation, the `browser_` tools limited to the pages of the calling session, file staging. Tests after `DesktopUiToolsTests`, with one that a session cannot list or address the page of another.
+- [ ] 2.2 Built-in plugin `browser`: `alta browser activate|deactivate|status|list|open|close|show` (`show` brings the session and its browser to the front), the instruction line, the reviewed-session rule. Tests after `AltaTerminalCommandsTests`; TUI build and tests stay green (the service is not registered there).
+- [ ] 2.3 Timeline: screenshots as **Image read** cards, as for the UI tools; tool call titles.
+- [ ] 2.4 A session of the developer instance opens `http://localhost` of a sample page, snapshots, clicks and reads the console.
+
+### Phase 3: Annotations
+
+- [ ] 3.1 The picker script (own file, unit-tested in headless Edge: selector building, text shortening, capture of the click, markers).
+- [ ] 3.2 `BrowserAnnotations` storage and `annotations` RPC; element screenshot.
+- [ ] 3.3 The annotations list of the browser part: pick, write, save, list, resolve, reopen, delete, jump to the element (opens its page when closed).
+- [ ] 3.4 `alta browser annotations …`, `browser_get_annotation`, the count in the instruction line and on the button of the session header.
+- [ ] 3.5 **Add to prompt** with prompt images.
+- [ ] 3.6 The folder of a session's browser in session deletion, retention and Settings > Storage.
+
+### Phase 4: After the first version
+
+- [ ] 4.1 Source hints of frameworks in the element record.
+- [ ] 4.2 The browser tools in the desktop MCP server.
+- [ ] 4.3 Acting tools under the permission review of reviewed sessions.
+- [ ] 4.4 macOS and Linux over the NeoAstra API, once released; remove the Windows-only placement.
+- [ ] 4.5 Links of messages to `http://localhost…` offer "Open in CodeAlta"; downloads; accelerators of the shell while the browser has the keyboard.
+
+### Docs, with the phase that changes behavior
+
+- [ ] `doc/desktop.md`: a "Browser" section (tab, isolation, placement, annotations), and "UI tools" (the filter, the second tool set).
+- [ ] `doc/live-tool.md`: `alta browser`. `doc/development-guide.md`: native views over the page and the occlusion signal.
+- [ ] `site/docs`: a user page with screenshots (2400×1500 baseline, `doc/site-screenshots.md`); `readme.md` feature list.
+
+## Risks
+
+| Risk | Handling |
+| --- | --- |
+| A native view over the page is the classic "airspace" problem: any overlay nobody thought of is hidden behind it | One signal, an inventory (1.4), and the still image; new overlays register by using the shared dialog and menu components |
+| Calling COM methods by table slot is fragile | Confined to one class beside the existing `MoveFocus` call, covered by a native smoke test, replaced by the NeoAstra API |
+| A second environment doubles browser processes and memory | Created on first use of a browser page, disposed with the last one |
+| A view per page per open session adds up | Hidden views beyond a limit are let go and their address reloaded on return (0.5); a session that never opens the browser costs nothing |
+| A narrow session pane leaves little room beside the timeline | Below a width the browser part covers the timeline instead of sharing the pane; the splitter remembers the width per session |
+| Screenshots of a session that is not shown fail on Windows | Settled in 0.5; otherwise a clear tool answer, and `alta browser show` |
+| Dispatched input is not trusted: `:hover` styles, native `<select>` lists and features needing a user gesture do not react to the agent | Stated in the tool descriptions and the docs, as for the UI tools; the user can always act in the view himself |
+| Page text is a prompt-injection surface | Labelled and delimited; annotations only from the user's own Save; reviewed sessions cannot act |
+| Selectors go stale when the page is rebuilt | The record keeps text, role and screenshot besides the selector; "not found on this page" instead of a wrong marker |
+| macOS and Linux users see no browser at first | Explicit `browser.unsupported`, documented; tracked by 4.4 |
+
+## Verification
+
+`dotnet build` and `dotnet test` in the configuration the running instance does not use, `npm test`, `lunet build`; each phase is looked at in the developer instance through `codealta-dev`, in both themes and at 900×650.
