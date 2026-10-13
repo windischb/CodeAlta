@@ -205,7 +205,8 @@ internal static class BrowserAnnotationText
         var builder = new StringBuilder("I marked ");
         builder.Append(annotations.Count == 1 ? "an element" : Invariant($"{annotations.Count} elements")).Append(" in the browser of this session. For each one: what I want, then the element as the page reports it. ")
             .Append(ElementNote);
-        if (pictures > 0) builder.Append(" The attached pictures show the elements, in the order of the annotations that have one.");
+        // Whether the pictures go with the prompt is decided by the composer, which takes them as it takes pasted images.
+        if (pictures > 0) builder.Append(" Pictures of the elements are attached, in the order of the annotations, when the model takes images; `browser_get_annotation` gives the picture of one otherwise.");
         foreach (var annotation in annotations) builder.Append("\n\n").Append(Describe(annotation));
         return builder.Append("\n\nWhen one is done, mark it with `alta browser annotations resolve <number>`.").ToString();
     }

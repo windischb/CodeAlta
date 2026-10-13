@@ -54,5 +54,5 @@ export const browserMessages = {
   "The page asks a question. Answer it first.": ["La página hace una pregunta. Respóndela primero.", "La page pose une question. Répondez-y d’abord.", "Die Seite stellt eine Frage. Zuerst beantworten.", "ページが質問しています。先に回答してください。", "页面正在询问。请先回答。"],
   "The page did not answer. Try again.": ["La página no respondió. Inténtalo de nuevo.", "La page n’a pas répondu. Réessayez.", "Die Seite hat nicht geantwortet. Erneut versuchen.", "ページが応答しませんでした。もう一度お試しください。", "页面没有响应。请重试。"],
   "Write what should change, in 4000 characters at most.": ["Escribe qué debe cambiar, en 4000 caracteres como máximo.", "Écrivez ce qui doit changer, en 4000 caractères au plus.", "Schreiben, was sich ändern soll, in höchstens 4000 Zeichen.", "変更内容を 4000 文字以内で入力してください。", "请写下需要更改的内容，最多 4000 个字符。"],
-  "{count} open annotations": ["{count} anotaciones abiertas", "{count} annotations ouvertes", "{count} offene Anmerkungen", "未解決の注釈 {count} 件", "{count} 条未解决的批注"],
+  "Open annotations: {count}": ["Anotaciones abiertas: {count}", "Annotations ouvertes : {count}", "Offene Anmerkungen: {count}", "未解決の注釈: {count}", "未解决的批注：{count}"],
 } as const;

@@ -8,7 +8,8 @@
 // since a page can replace this object.
 (() => {
   "use strict";
-  if (window.__codealtaAnnotations) return;
+  // The frames of a page get this script too: an element is picked in the top document only.
+  if (window.__codealtaAnnotations || window.top !== window) return;
 
   const limits = { selector: 1000, ancestors: 12, ancestor: 160, name: 300, text: 500, html: 1000, short: 64, address: 2048, title: 512 };
   // The attributes that name an element for good, in the order they are tried.

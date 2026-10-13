@@ -96,7 +96,7 @@
 .browser-annotation-element { font-family: var(--mono, ui-monospace, monospace); }
 .browser-annotation-missing { color: var(--text); font-size: 11.5px; font-weight: 600; }
 .browser-annotation-resolved { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
-.browser-annotation-picture { display: block; max-width: min(100%, 260px); max-height: 120px; margin-top: 3px; border: 1px solid var(--line); border-radius: 4px; object-fit: contain; }
+.browser-annotation-picture { display: block; align-self: flex-start; width: auto; height: auto; max-width: min(100%, 260px); max-height: 120px; margin-top: 3px; border: 1px solid var(--line); border-radius: 4px; object-fit: contain; }
 .browser-annotation-picked > .browser-annotation-picture { flex: none; max-width: 40%; margin-top: 0; }
 .browser-annotation-actions { display: flex; flex: none; }
 

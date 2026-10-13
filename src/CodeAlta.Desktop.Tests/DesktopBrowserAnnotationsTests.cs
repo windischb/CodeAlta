@@ -303,7 +303,7 @@ public sealed class DesktopBrowserAnnotationsTests
         var prompt = BrowserAnnotationText.Prompt([annotation, annotation with { Number = 5, Text = "And bigger" }], pictures: 1);
         StringAssert.StartsWith(prompt, "I marked 2 elements in the browser of this session.");
         StringAssert.Contains(prompt, BrowserAnnotationText.ElementNote);
-        StringAssert.Contains(prompt, "The attached pictures show the elements");
+        StringAssert.Contains(prompt, "Pictures of the elements are attached, in the order of the annotations, when the model takes images");
         StringAssert.Contains(prompt, "Annotation 5 (open)");
 
         Assert.IsTrue(BrowserAnnotation.SamePage("https://example.com/a#x", "https://example.com/a"));

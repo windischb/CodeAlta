@@ -167,7 +167,7 @@ there, with its components, its state modules, their tests and its stylesheet:
 - `lent/`: the entries of the libraries lent to plugins and the `codealta` module (below).
 - `spaces/`: the spaces (the rules of what a space shows, the link to the host, the switch of the title bar, the bar of the Explorer, the window that creates one, the settings page).
 - `bookmarks/`: the bookmarks (the link to the host, the tab that lists them, the marks of the rows of a timeline and the rail beside it, the requests that show a message of a timeline).
-- `browser/`: the browser of a session (the link to the host, the part of the session pane with its strip of pages and its toolbar, the place of the native view, what hides it).
+- `browser/`: the browser of a session (the link to the host, the part of the session pane with its strip of pages and its toolbar, the place of the native view, what hides it, the dialogs of a page, the annotations). The script that runs inside a page, `Desktop/Browser/annotation-picker.js`, is a file of the host, which embeds it; `browser/annotationPicker.browser.test.ts` loads that same file into headless Edge.
 
 A native view lies above everything the page draws. The browser of a session is one: the page draws a frame
 and an empty placeholder, and tells the host where the placeholder is (`browser/browserPlacement.ts`). Whatever

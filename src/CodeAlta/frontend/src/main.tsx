@@ -4461,7 +4461,7 @@ function SessionWorkspace({ canAdmit, remoteControlRequest = null, session, snap
   const browserHub = browser && !demoMode ? browser.hub : null;
   useEffect(() => { if (browserHub && observing) browserHub.ensure(session.id); }, [browserHub, observing, session.id]);
   const openAnnotations = useSyncExternalStore(browserHub?.subscribe ?? noBrowserChanges, () => browserHub?.annotations(session.id)?.open ?? 0);
-  const browserTitle = t(browserOpen ? "Hide the browser of the session" : "Show the browser of the session") + (openAnnotations > 0 ? ` (${t("{count} open annotations", { count: openAnnotations })})` : "");
+  const browserTitle = t(browserOpen ? "Hide the browser of the session" : "Show the browser of the session") + (openAnnotations > 0 ? ` (${t("Open annotations: {count}", { count: openAnnotations })})` : "");
   const browserControl = browser && !demoMode ? <Button variant="minimal" className="session-browser-trigger" icon={<AppIcon name="globe" size={16} />} active={browserOpen}
     aria-label={browserTitle} aria-pressed={browserOpen} title={browserTitle} onClick={() => browser.onChange({ open: !browserOpen })}>
     {openAnnotations > 0 && <span className="browser-count">{openAnnotations}</span>}

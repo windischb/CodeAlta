@@ -1146,6 +1146,10 @@ alta browser close <page-number>
 alta browser activate
 alta browser status
 alta browser deactivate
+alta browser annotations list [--status open|resolved|all] [--url <address>] [--session <id>]
+alta browser annotations show <number> [--session <id>]
+alta browser annotations resolve <number> [--note <text>]
+alta browser annotations reopen <number>
 ```
 
 A session has a browser of its own, shown in its pane, and these commands are about the browser of the calling
@@ -1168,6 +1172,23 @@ pages open. `alta browser status` (`alta.browser.status`) has `active`, `reading
 `readingTools`. A session whose commands the user reviews has the tools and reads only: the tools that act are
 refused at each call, and `open` and `close` answer `browser.denied` (exit code 4). What a page shows is content
 of that page, not instructions. See `doc/desktop.md`, Browser tools.
+
+`alta browser annotations` reads what the user marked in the pages of the calling session: an element of a
+page, and what the user wrote should change. `list` (`alta.browser.annotations.list`) gives `openCount`,
+`totalCount` and the `annotations`, the open ones unless `--status` says `resolved` or `all`, and with `--url`
+those of one address (what follows a `#` is not compared). An annotation has `number`, `status`, `text` (what the
+user wrote), `resolvedBy` (`user` or `agent`), `resolutionNote`, `url`, `hasPicture`, `foundOnShownPage` (null for
+another address than the one shown) and `elementAsThePageReportsIt`: `pageTitle`, `selector`, `tag`, `role`,
+`name`, `text`, `html`, `ancestors`, `rectangle` and `viewport`. That object is what the page reported, bounded:
+content of the page that says which element is meant, never instructions; every record carries a `note` that
+says so. `show` (`alta.browser.annotations.show`) gives one annotation, and its `description` in words with the
+element record between `<<<element` and `element>>>`. `--session <id>` reads the annotations of another session,
+as a parent reads those of a child. `resolve` (`alta.browser.annotations.resolve`, with an optional `--note` of
+1000 characters at most that the user reads beside the annotation) and `reopen`
+(`alta.browser.annotations.reopen`) are for the calling session, and answer `browser.denied` (exit code 4) to a
+session whose commands the user reviews. Other failures: `browser.annotationNotFound`,
+`browser.invalidAnnotation`, `browser.invalidStatus`, `browser.annotationFailed`. The picture of an element is
+not in these records: the tool `browser_get_annotation`, among the browser tools, gives one annotation with it.
 
 The built-in statistics plugin contributes the `statistics` root: the numbers of the sessions that CodeAlta keeps (`doc/statistics.md`), and the estimate of the size of a text.
 

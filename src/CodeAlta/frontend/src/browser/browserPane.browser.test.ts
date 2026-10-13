@@ -316,9 +316,9 @@ test("the browser of a session says where its page is, hides it behind what the 
     assert.deepEqual(await asked(), ["discardPick fixture"]);
     // The list: the open ones as the host orders them, what is not on the page said, a resolution with who and why.
     await act(annotations(some(`[${f}.annotation(2, { text: 'Bigger title', hasImage: true }), ${f}.annotation(3, { found: false }), ${f}.annotation(1, { status: 'resolved', resolvedBy: 'agent', note: 'Done in app.css', found: null })]`)));
-    assert.equal(await evaluate(panel), null, "nothing waits for a text: the list is as the user left it");
+    assert.ok(await evaluate(`${panel} !== null && ${panel}.querySelector('form') === null`), "the list stays open with what was saved");
     assert.equal(await evaluate("document.querySelector('.browser-annotate .browser-count').textContent"), "2");
-    await act(`${button("Show or hide the annotations")}.click()`);
+    assert.equal(await evaluate(`${button("Show or hide the annotations")}.getAttribute('aria-pressed')`), "true");
     assert.deepEqual(await evaluate(`[...${panel}.querySelectorAll('.browser-annotation')].map(item => [item.querySelector('.browser-annotation-number').textContent, item.querySelector('.browser-annotation-text').textContent, item.dataset.status,
       item.querySelector('.browser-annotation-missing')?.textContent ?? null, item.querySelector('.browser-annotation-resolved')?.textContent ?? null])`),
       [["2", "Bigger title", "open", null, null], ["3", "Change 3", "open", "Not found on this page", null], ["1", "Change 1", "resolved", null, "Resolved by the agent: Done in app.css"]]);

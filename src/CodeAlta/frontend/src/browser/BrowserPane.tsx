@@ -55,6 +55,9 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
   // Whether the list of annotations is shown under the page. An element that waits for its text shows it too.
   const [listOpen, setListOpen] = useState(false);
   const picking = !!frontId && annotations?.pickingPageId === frontId;
+  // An element that was picked opens the list, which stays open with what is saved of it.
+  const picked = !!annotations?.pending;
+  useEffect(() => { if (picked) setListOpen(true); }, [picked]);
   const [draft, setDraft] = useState<Readonly<{ page: string | null; text: string }> | null>(null);
   const [notice, setNotice] = useState<MessageKey | null>(null);
   // Whether the view is hidden because something of the window is drawn over its place.
@@ -283,7 +286,7 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
             {field("browser-address browser-address-first")}
             <p>{t("This session has no page yet. Type an address and press Enter to open one.")}</p>
           </div>}
-        {(listOpen || !!annotations?.pending) && <BrowserAnnotations hub={hub} sessionId={sessionId} annotations={annotations} onNotice={annotationSaid}
+        {(listOpen || picked) && <BrowserAnnotations hub={hub} sessionId={sessionId} annotations={annotations} onNotice={annotationSaid}
           onAddToPrompt={() => void addToPrompt()} onClose={() => { setListOpen(false); if (annotations?.pending) void hub.discardPick(sessionId); }} />}
       </>}
   </section>;

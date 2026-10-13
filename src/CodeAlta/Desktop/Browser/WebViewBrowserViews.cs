@@ -144,7 +144,16 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
             }
 
             // The picker of annotations is in every document of the view from its start, and waits there to be asked.
-            await view.AddScriptAsync(BrowserAnnotationScript.Source, new NeoScriptOptions { MainFrameOnly = true }, cancellationToken);
+            // WebView2 adds a script to the frames too: the picker leaves a document that is not the top one alone.
+            try
+            {
+                await view.AddScriptAsync(BrowserAnnotationScript.Source, new NeoScriptOptions { MainFrameOnly = false }, cancellationToken);
+            }
+            catch (Exception exception) when (exception is NotSupportedException or InvalidOperationException or NeoAstraException)
+            {
+                // A view without the picker shows its pages all the same: annotating says that the page does not answer.
+            }
+
             var page = new WebViewBrowserView(this, view, LabelPrefix + pageId, controller, window, openPage);
             _live.Add(page);
             _poll ??= new Timer(static state => ((WebViewBrowserViews)state!).PostPoll(), this, PollInterval, PollInterval);
