@@ -59,8 +59,8 @@ internal enum BrowserCommand
 /// </para>
 /// <para>
 /// A page keeps its view while its session is not shown, so that it is found as it was left. Views cost memory:
-/// beyond <see cref="LiveViews"/> the view that was shown longest ago is let go, and its page loads its address
-/// again when it is next shown.
+/// beyond <see cref="LiveViews"/> the view that was shown, or driven by its session, longest ago is let go, and
+/// its page loads its address again when it is next shown or driven.
 /// </para>
 /// </remarks>
 internal sealed class DesktopBrowsers : IAsyncDisposable
@@ -257,6 +257,50 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Makes sure a page has its view, for who drives the page without showing it: a page whose view was let go
+    /// gets a new one, which loads the address of the page. The page counts as used now, so its view is not the
+    /// next one to be let go.
+    /// </summary>
+    /// <param name="sessionId">The session.</param>
+    /// <param name="pageId">The page.</param>
+    internal Task<BrowserResult> EnsureLiveAsync(string sessionId, string pageId) => RunAsync(sessionId, async session =>
+    {
+        if (Find(session, pageId) is not { } page) return "not_found";
+        if (await LiveAsync(page) is null) return page.Closed ? "not_found" : "failed";
+        page.Shown = ++_clock;
+        return "ok";
+    });
+
+    /// <summary>
+    /// Runs work while a page can be captured: the view of a page that is hidden is shown past the edge of the
+    /// window meanwhile, and hidden again afterwards. The work starts on the thread of the window.
+    /// </summary>
+    /// <typeparam name="T">What the work returns.</typeparam>
+    /// <param name="sessionId">The session.</param>
+    /// <param name="pageId">The page.</param>
+    /// <param name="body">The work, which is run also when there is no such page or it has no view.</param>
+    /// <returns>What the work returned.</returns>
+    /// <exception cref="ObjectDisposedException">The application is ending.</exception>
+    internal Task<T> WhileCapturableAsync<T>(string sessionId, string pageId, Func<Task<T>> body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        return _views.RunAsync(async () =>
+        {
+            IBrowserView? view = null;
+            if (!_closed && sessionId is not null && _sessions.TryGetValue(sessionId, out var loading)) view = Find(await loading, pageId)?.View;
+            view?.BeginCapture();
+            try
+            {
+                return await body();
+            }
+            finally
+            {
+                view?.EndCapture();
+            }
+        });
     }
 
     /// <summary>

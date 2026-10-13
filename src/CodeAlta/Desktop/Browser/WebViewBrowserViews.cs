@@ -29,8 +29,11 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
     /// <summary>How often the views are asked what they show: a view reports the end of a navigation, not a new title.</summary>
     internal static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(400);
 
+    // The size of a page whose session was never shown: what a session that drives it lays out and captures.
+    private const int HiddenWidth = 1280, HiddenHeight = 800;
+
     // Out of sight: a view is created shown, and is hidden as soon as it exists.
-    private static readonly NeoRect Offstage = new(-BrowserBounds.Maximum, -BrowserBounds.Maximum, 64, 64);
+    private static readonly NeoRect Offstage = new(-BrowserBounds.Maximum, -BrowserBounds.Maximum, HiddenWidth, HiddenHeight);
 
     private readonly NeoApplication _application;
     private readonly NeoWindow _window;
@@ -217,6 +220,9 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
         private readonly View _view;
         private readonly nint _controller;
         private BrowserBounds? _bounds;
+        // The size the view last had in the window: the one it is captured in while it is hidden.
+        private (int Width, int Height) _size = (HiddenWidth, HiddenHeight);
+        private int _captures;
         private bool _disposed;
 
         internal WebViewBrowserView(WebViewBrowserViews owner, View view, nint controller, nint window, Action<Uri> openPage)
@@ -270,6 +276,7 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
             if (_disposed || !OperatingSystem.IsWindows()) return;
             if (bounds is { } shown)
             {
+                _size = (shown.Width, shown.Height);
                 BrowserViewInterop.SetBounds(_controller, shown);
                 if (_bounds is null) BrowserViewInterop.SetVisible(_controller, true);
             }
@@ -287,18 +294,28 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
             if (!_disposed && _bounds is not null && OperatingSystem.IsWindows()) BrowserViewInterop.Focus(_controller);
         }
 
+        public void BeginCapture()
+        {
+            if (_disposed || !OperatingSystem.IsWindows()) return;
+            // WebView2 captures a view that is shown only: a hidden one is shown past the edge of the window meanwhile,
+            // in the size it last had there.
+            if (_captures++ != 0 || _bounds is not null) return;
+            var client = _owner.ClientSize;
+            BrowserViewInterop.SetBounds(_controller, new BrowserBounds(Math.Max(client.Width, 0) + 64, 0, _size.Width, _size.Height));
+            BrowserViewInterop.SetVisible(_controller, true);
+        }
+
+        public void EndCapture()
+        {
+            if (_captures == 0 || --_captures != 0) return;
+            // The view may have been given a place while it was captured.
+            if (!_disposed && _bounds is null && OperatingSystem.IsWindows()) BrowserViewInterop.SetVisible(_controller, false);
+        }
+
         public async ValueTask<BrowserCapture?> CaptureAsync(CancellationToken cancellationToken)
         {
             if (_disposed || !OperatingSystem.IsWindows()) return null;
-            // WebView2 captures a view that is shown only: a hidden one is shown past the edge of the window meanwhile.
-            var hidden = _bounds is null;
-            if (hidden)
-            {
-                var client = _owner.ClientSize;
-                BrowserViewInterop.SetBounds(_controller, new BrowserBounds(Math.Max(client.Width, 0) + 64, 0, 1280, 800));
-                BrowserViewInterop.SetVisible(_controller, true);
-            }
-
+            BeginCapture();
             try
             {
                 var image = await _view.CaptureAsync(new NeoCaptureOptions { Format = NeoCaptureFormat.Jpeg, Quality = 80 }, cancellationToken);
@@ -310,8 +327,7 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
             }
             finally
             {
-                // The view may have been given a place while it was captured.
-                if (hidden && !_disposed && _bounds is null) BrowserViewInterop.SetVisible(_controller, false);
+                EndCapture();
             }
         }
 

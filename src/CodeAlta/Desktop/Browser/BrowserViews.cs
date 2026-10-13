@@ -67,6 +67,15 @@ internal interface IBrowserView : IAsyncDisposable
     /// <summary>Gives the view the keyboard.</summary>
     void Focus();
 
+    /// <summary>
+    /// Makes the view one that can be captured, until <see cref="EndCapture"/>: a view that is hidden is shown past
+    /// the edge of the window, where nobody sees it. A view that is shown stays where it is.
+    /// </summary>
+    void BeginCapture();
+
+    /// <summary>Ends what <see cref="BeginCapture"/> began: a view that has no place in the window is hidden again.</summary>
+    void EndCapture();
+
     /// <summary>Takes a picture of what the view shows. A view that is hidden is captured out of sight.</summary>
     /// <param name="cancellationToken">Cancels the wait.</param>
     /// <returns>The picture, or null when the view could not be captured.</returns>

@@ -1,0 +1,93 @@
+using CodeAlta.Desktop.Browser;
+
+namespace CodeAlta.Desktop.Tests;
+
+/// <summary>The browser views of the tests: they create views that record what is asked of them, on the thread of the caller.</summary>
+internal sealed class FakeViews : IBrowserViews
+{
+    private readonly Lock _gate = new();
+    private readonly List<FakeView> _all = [];
+
+    public bool IsSupported { get; init; } = true;
+
+    public bool Fail { get; set; }
+
+    public IReadOnlyList<FakeView> All
+    {
+        get { lock (_gate) return [.. _all]; }
+    }
+
+    /// <summary>The view a page has now: the last one that was created for it.</summary>
+    public FakeView Of(string pageId) => All.Last(view => view.PageId == pageId);
+
+    public Task<T> RunAsync<T>(Func<Task<T>> body) => body();
+
+    public ValueTask<IBrowserView> CreateAsync(string pageId, Action<Uri> openPage, CancellationToken cancellationToken)
+    {
+        if (Fail) throw new InvalidOperationException("No browser here.");
+        var view = new FakeView(pageId, openPage);
+        lock (_gate) _all.Add(view);
+        return ValueTask.FromResult<IBrowserView>(view);
+    }
+}
+
+/// <summary>A browser view of the tests.</summary>
+internal sealed class FakeView(string pageId, Action<Uri> openPage) : IBrowserView
+{
+    public string PageId { get; } = pageId;
+
+    public Action<Uri> OpenPage { get; } = openPage;
+
+    public List<Uri> Navigations { get; } = [];
+
+    public List<string> Commands { get; } = [];
+
+    public BrowserBounds? Bounds { get; private set; }
+
+    public bool Disposed { get; private set; }
+
+    public string Address => Navigations.Count == 0 ? BrowserAddress.Blank : Navigations[^1].AbsoluteUri;
+
+    public BrowserViewState State { get; private set; } = new(BrowserAddress.Blank, string.Empty, false, false, false);
+
+    public event Action? Changed;
+
+    public void Report(BrowserViewState state)
+    {
+        State = state;
+        Changed?.Invoke();
+    }
+
+    public void Navigate(Uri address) => Navigations.Add(address);
+
+    public void GoBack() => Commands.Add("back");
+
+    public void GoForward() => Commands.Add("forward");
+
+    public void Reload() => Commands.Add("reload");
+
+    public void Stop() => Commands.Add("stop");
+
+    public void OpenDevTools() => Commands.Add("devtools");
+
+    public void Focus() => Commands.Add("focus");
+
+    public void Place(BrowserBounds? bounds) => Bounds = bounds;
+
+    /// <summary>What was asked for a capture, in order: "begin" and "end", each with whether the view was hidden then.</summary>
+    public List<string> Captures { get; } = [];
+
+    public void BeginCapture() => Captures.Add(Bounds is null ? "begin hidden" : "begin shown");
+
+    public void EndCapture() => Captures.Add(Bounds is null ? "end hidden" : "end shown");
+
+    public ValueTask<BrowserCapture?> CaptureAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult<BrowserCapture?>(new BrowserCapture(new byte[] { 0xff, 0xd8, 0xff, 0xd9 }, "image/jpeg", 2, 1));
+
+    public ValueTask DisposeAsync()
+    {
+        Disposed = true;
+        Bounds = null;
+        return ValueTask.CompletedTask;
+    }
+}

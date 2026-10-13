@@ -25,24 +25,57 @@ internal sealed class DesktopUiAutomation : IDesktopUi, IAsyncDisposable
 {
     private readonly NeoAutomation _automation;
 
-    /// <summary>Turns automation on for the views of an application.</summary>
+    /// <summary>Turns automation on for the views of an application: its windows, not the browsers of the sessions.</summary>
     /// <param name="application">The application whose views the tools see and drive.</param>
     /// <param name="filesDirectory">The folder the tools read their files from; created when it does not exist.</param>
     /// <exception cref="ArgumentNullException"><paramref name="application"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="filesDirectory"/> is blank.</exception>
     internal DesktopUiAutomation(NeoApplication application, string filesDirectory)
+        : this(application, filesDirectory, browsers: false)
+    {
+    }
+
+    private DesktopUiAutomation(NeoApplication application, string filesDirectory, bool browsers)
     {
         ArgumentNullException.ThrowIfNull(application);
         ArgumentException.ThrowIfNullOrWhiteSpace(filesDirectory);
         FilesDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(filesDirectory));
         Directory.CreateDirectory(FilesDirectory);
-        // The pages of the browsers of the sessions are no windows of the application: these tools leave them alone.
+        // The pages of the browsers of the sessions are no windows of the application: the tools of the window leave
+        // them alone, and the tools of the browsers see nothing else. No view is a page of both.
         _automation = new NeoAutomation(application, new NeoAutomationOptions
         {
             AllowedDirectories = { FilesDirectory },
-            PageFilter = static view => !Browser.WebViewBrowserViews.IsBrowserView(view),
+            PageFilter = browsers ? static view => Browser.WebViewBrowserViews.IsBrowserView(view) : static view => !Browser.WebViewBrowserViews.IsBrowserView(view),
         });
-        Tools = Describe(_automation.Tools.Select(static tool => new DesktopUiTool(tool.Name, tool.Description, tool.InputSchema, tool.IsReadOnly)));
+        var tools = _automation.Tools.Select(static tool => new DesktopUiTool(tool.Name, tool.Description, tool.InputSchema, tool.IsReadOnly));
+        // A page of a browser has the size of its pane: its view has no window of its own to resize.
+        Tools = browsers ? [.. tools.Where(static tool => tool.Name != "resize_page").OrderBy(static tool => tool.Name, StringComparer.Ordinal)] : Describe(tools);
+    }
+
+    /// <summary>
+    /// Turns automation on for the pages of the browsers of the sessions, and for nothing else of the application.
+    /// The tools are those of the automation as they are, <c>new_page</c> and <c>close_page</c> included: who
+    /// offers them to a session says what they mean there (<see cref="Browser.DesktopBrowserTools"/>).
+    /// </summary>
+    /// <param name="application">The application whose browser views the tools see and drive.</param>
+    /// <param name="filesDirectory">The folder the tools read their files from; created when it does not exist.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="application"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="filesDirectory"/> is blank.</exception>
+    internal static DesktopUiAutomation ForBrowsers(NeoApplication application, string filesDirectory) => new(application, filesDirectory, browsers: true);
+
+    /// <summary>The page of the automation that a view is, by the label of the view.</summary>
+    /// <param name="viewLabel">The label the view was created with.</param>
+    /// <returns>The identifier the tools take as <c>pageId</c>, or null when no page of the automation has that label.</returns>
+    internal int? FindPage(string viewLabel)
+    {
+        ArgumentNullException.ThrowIfNull(viewLabel);
+        foreach (var page in _automation.Pages)
+        {
+            if (string.Equals(page.View.ViewLabel, viewLabel, StringComparison.Ordinal)) return page.Id;
+        }
+
+        return null;
     }
 
     /// <inheritdoc />

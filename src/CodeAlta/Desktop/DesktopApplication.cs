@@ -255,7 +255,7 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
         DesktopWindowState? windowState = null;
         Mcp.DesktopMcpServer? mcp = null;
         IAsyncDisposable? environmentLifetime = null, rpcLifetime = null, viewLifetime = null, bindingLifetime = null, chromeLifetime = null, instanceLifetime = null;
-        IAsyncDisposable? uiLifetime = null;
+        IAsyncDisposable? uiLifetime = null, browserUiLifetime = null;
         IAsyncDisposable? sessionTaskbarProgress = null;
         var bodyFailed = false;
         try
@@ -271,6 +271,10 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             var ui = new Ui.DesktopUiAutomation(application, Path.Combine(options.DataRoot, "ui"));
             uiLifetime = ui;
             var uiSessions = new Ui.DesktopUiSessions();
+            // A second automation, for the pages of the browsers of the sessions and nothing else: no view is a page of both.
+            var browserUi = Ui.DesktopUiAutomation.ForBrowsers(application, Path.Combine(options.DataRoot, "browser-tools"));
+            browserUiLifetime = browserUi;
+            var browserSessions = new Ui.DesktopUiSessions();
             window = application.CreateWindow(DesktopWindowChrome.WindowOptions(options.Developer, appearance));
             application.MainWindow = window;
             // What a resize uncovers is filled in the theme's background, not in white, until the view covers it.
@@ -345,6 +349,14 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             void Mark(string step) => LogManager.GetLogger("CodeAlta.Desktop").Info($"Startup: {step} at {startupClock.ElapsedMilliseconds} ms");
             var startedWindow = window;
             var catalog = new CatalogOptions { GlobalRoot = options.CatalogRoot!, StateRoot = options.StateRoot ?? options.CatalogRoot! };
+            // The browsers of the sessions: views of their own above the page, on a browser environment of their own.
+            // Their pages are kept with the state of this instance, and go with their session. They exist before the
+            // host, whose plugins give the sessions the tools that drive them; no view is created before a session asks.
+            var browserViews = new Browser.WebViewBrowserViews(application, startedWindow, Path.Combine(options.DataRoot, "webview-browser"));
+            browserViewsLifetime = browserViews;
+            var sessionBrowsers = new Browser.DesktopBrowsers(browserViews, new Browser.BrowserFileStore(Path.Combine(catalog.StateRoot, "browser")));
+            browsers = sessionBrowsers;
+            var browserTools = new Browser.DesktopBrowserTools(browserUi, sessionBrowsers, browserSessions, browserUi.FindPage);
             var startupScratchpadCleanup = new ScratchpadStartupCleanup(
                 CodeAltaInstanceProfile.Create(options.CatalogRoot!, options.Developer), _lease);
             // Plugins read the user's profile (the MCP servers and their sign-ins, the provider CLIs): they
@@ -392,7 +404,7 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
                 PluginFrontend = PluginFrontends.Desktop, PluginAuthoringProfile = PluginAuthoringProfile.Terminal,
                 PluginStartupFeedback = new DesktopPluginStartupFeedback(startupStatus),
                 PluginBuiltIns = DesktopPlugins.ForWindow(ui, uiSessions, options.ReviewOwnedCommandPermissions,
-                    DesktopPlugins.CreateJournalCatalog(catalog), new StatisticsArchiveStore(catalog.StateRoot)), PluginSafeMode = DesktopPlugins.SafeMode,
+                    DesktopPlugins.CreateJournalCatalog(catalog), new StatisticsArchiveStore(catalog.StateRoot), browserTools), PluginSafeMode = DesktopPlugins.SafeMode,
                 PluginServices = pluginAlta is null ? null : new DesktopPluginServices(pluginAlta, pluginUi, canvases),
                 ConfigureModelProviders = registry => ConfiguredModelProviderRegistryBuilder.RegisterConfiguredProviders(
                     registry, new CodeAltaConfigStore(catalog), options.CatalogRoot!),
@@ -443,9 +455,9 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             Mark("view created");
             viewLifetime = view;
             // The window gives the keyboard to its page when it is used again, after a switch to another application.
-            // A browser view of a session that had the keyboard last takes it instead; there is none before the host runs.
-            Func<bool>? browserKeyboard = null;
-            DesktopWindowFocus.Follow(window, view, application.Dispatcher, () => Volatile.Read(ref browserKeyboard)?.Invoke() == true);
+            // A browser view of a session that had the keyboard last takes it instead, and gives it back when it is hidden.
+            browserViews.KeyboardReturned = () => DesktopWindowFocus.Give(view);
+            DesktopWindowFocus.Follow(window, view, application.Dispatcher, browserViews.RestoreKeyboard);
             // The kept zoom, before the first document: the window never shows at another one.
             view.ZoomFactor = shell.Zoom / 100d;
             shell.ApplyZoom = factor => view.ZoomFactor = factor;
@@ -591,14 +603,7 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
                 canvases?.Attach(host.PluginRuntime, () => spaceView.ShownSpaceId);
                 terminals = new Terminals.DesktopTerminals(DesktopCommandLine.Version, Path.Combine(options.DataRoot, "terminal"));
                 shell.BusyTerminals = () => terminals.Busy;
-                // The browsers of the sessions: views of their own above the page, on a browser environment of their own.
-                // Their pages are kept with the state of this instance, and go with their session.
-                var browserViews = new Browser.WebViewBrowserViews(application, startedWindow, Path.Combine(options.DataRoot, "webview-browser"));
-                browserViewsLifetime = browserViews;
-                browserViews.KeyboardReturned = () => DesktopWindowFocus.Give(view);
-                Volatile.Write(ref browserKeyboard, browserViews.RestoreKeyboard);
-                var sessionBrowsers = new Browser.DesktopBrowsers(browserViews, new Browser.BrowserFileStore(Path.Combine(host.CatalogOptions.StateRoot, "browser")));
-                browsers = sessionBrowsers;
+                // The browser of a session goes with its session.
                 host.RuntimeService.SessionDeleted += sessionId => _ = sessionBrowsers.ForgetAsync(sessionId);
                 // The definitions are shared with every instance; what ran is this instance's. The developer
                 // instance starts paused, so that it does not run again what the normal one already runs.
@@ -638,6 +643,9 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
                 uiSessions.WorkFolder = (sessionId, token) => SessionFolderAsync(host, sessionId, token);
                 // A session whose commands the user reviews does not drive the window, where the review is answered.
                 uiSessions.Reviewed = sessionId => host.RuntimeService.GetPermissionPolicy(sessionId) != SessionPermissionPolicy.Approve;
+                // Such a session reads the pages of its browser and does not act on them: nobody reviews a click.
+                browserSessions.WorkFolder = uiSessions.WorkFolder;
+                browserSessions.Reviewed = sessionId => options.ReviewOwnedCommandPermissions || host.RuntimeService.GetPermissionPolicy(sessionId) != SessionPermissionPolicy.Approve;
                 automations.Start();
                 workspacePrepared.TrySetResult();
                 {
@@ -835,7 +843,13 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
         // The placement of the window for the next start, written while the window is still there.
         if (windowState is not null) await windowState.DisposeAsync();
         var nativeFailed = false;
-        foreach (var resource in new[] { uiLifetime, bindingLifetime, browserViewsLifetime, viewLifetime, rpcLifetime, instanceLifetime, sessionTaskbarProgress, chromeLifetime, environmentLifetime })
+        // An application that ended before it had a host has no close flow: nothing else ends its browsers.
+        if (_closeFlow is null && browsers is not null)
+        {
+            try { await browsers.DisposeAsync(); }
+            catch (Exception) { bodyFailed = true; }
+        }
+        foreach (var resource in new[] { uiLifetime, browserUiLifetime, bindingLifetime, browserViewsLifetime, viewLifetime, rpcLifetime, instanceLifetime, sessionTaskbarProgress, chromeLifetime, environmentLifetime })
         {
             if (resource is null) continue;
             try

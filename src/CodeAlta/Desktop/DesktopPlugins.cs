@@ -51,14 +51,15 @@ internal static class DesktopPlugins
     ];
 
     /// <summary>
-    /// The built-in plugins of a window: the ones of both applications, and the one that gives a session the
-    /// tools that see and drive the window.
+    /// The built-in plugins of a window: the ones of both applications, the one that lets a session drive the
+    /// browser of its own session, and the one that gives a session the tools that see and drive the window.
     /// </summary>
     /// <param name="ui">The tools of the window.</param>
     /// <param name="sessions">The sessions that have them.</param>
     /// <param name="reviewsCommands">
     /// Whether the user reviews the commands of the sessions. Such a host gives no session the tools that drive
-    /// the window: a session could answer the review itself.
+    /// the window: a session could answer the review itself. The browser of a session is not where a review is
+    /// answered: its plugin is listed all the same, and lets a reviewed session read its pages only.
     /// </param>
     /// <param name="journals">
     /// The journals of the session store of this instance. The Statistics plugin of the window reads them to keep the
@@ -66,14 +67,19 @@ internal static class DesktopPlugins
     /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="ui"/> or <paramref name="sessions"/> is null.</exception>
     /// <param name="archives">The dedicated archive of the owning StateRoot, borrowed by the same Statistics plugin.</param>
+    /// <param name="browser">
+    /// The tools that drive the browsers of the sessions; null, or a system without a browser for its sessions,
+    /// lists no plugin for them.
+    /// </param>
     internal static IReadOnlyList<BuiltInPluginDefinition> ForWindow(Ui.IDesktopUi ui, Ui.DesktopUiSessions sessions, bool reviewsCommands,
-        ISessionJournalCatalog? journals = null, CodeAlta.Catalog.StatisticsArchiveStore? archives = null)
+        ISessionJournalCatalog? journals = null, CodeAlta.Catalog.StatisticsArchiveStore? archives = null, Browser.DesktopBrowserTools? browser = null)
     {
         ArgumentNullException.ThrowIfNull(ui);
         ArgumentNullException.ThrowIfNull(sessions);
         var builtIns = journals is null ? BuiltIns : [.. BuiltIns.Select(definition => definition.Id == "statistics" ? StatisticsDefinition(journals, archives) : definition)];
         // The landing page is the window's: the terminal application has no such plugin.
         builtIns = [.. builtIns, DesktopLandingPlugin.Definition()];
+        if (browser is { IsSupported: true }) builtIns = [.. builtIns, Browser.DesktopBrowserPlugin.Definition(browser)];
         return reviewsCommands ? builtIns : [.. builtIns, Ui.DesktopUiPlugin.Definition(ui, sessions)];
     }
 
