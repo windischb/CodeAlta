@@ -179,15 +179,27 @@ Facts found on the way:
 - NeoAutomation appends the pages of every session to some results: the wrapper replaces that list with the one of the session.
 - A view is created 1280x800 (hidden, out of sight) so that a page an agent drives without its session being shown has a real layout, and a page that is driven counts as used for the limit of live views.
 - The browsers are created before the host, so that the plugin exists when the host lists its plugins.
-### Phase 3: Annotations
+### Phase 3: Annotations, and two fixes decided by the user on 2026-10-13
 
-- [ ] 3.1 The picker script (own file, unit-tested in headless Edge: selector building, text shortening, capture of the click, markers).
-- [ ] 3.2 `BrowserAnnotations` storage and `annotations` RPC; element screenshot.
-- [ ] 3.3 The annotations list of the browser part: pick, write, save, list, resolve, reopen, delete, jump to the element (opens its page when closed).
-- [ ] 3.4 `alta browser annotations …`, `browser_get_annotation`, the count in the instruction line and on the button of the session header.
-- [ ] 3.5 **Add to prompt** with prompt images.
-- [ ] 3.6 The folder of a session's browser in session deletion, retention and Settings > Storage.
+Built by a child session, each part seen working in the developer instance (dark theme, 100%, a local test page): `ad689917` (dialogs), `c4404f46` (toasts), `71380c46`, `2f67ee4e`, `63bf11f4` (annotations). Focused tests: 63 .NET tests of the browser and the six test files of `frontend/src/browser` pass; `tsc` clean. The whole runs, made while another worktree ran its own tests on the same computer: .NET 11 failures, all in `SessionRuntimeForwardingLifetimeTests` (timeouts at cleanup; the project does not reference the desktop code and passed 499 of 499 alone); `npm test` 1592 of 1593 (`sessionTabMenu.browser.test.ts`, which passed twice alone).
 
+- [x] **JavaScript dialogs of a page** (the fact recorded under phase 2): shown in the browser part of the pane (`BrowserDialog.tsx`), answered there or by `browser_handle_dialog`, whoever is first; browser views wait ten minutes for an answer. The dialog reaches the pane with the 400 ms poll of the views.
+- [x] **Toasts that stay** (the fact recorded under phase 1): a browser part that is shown reserves its rectangle, and the toasters keep to the rightmost stretch of the window that no browser part takes, when it is at least 340 pixels wide. Below that the occlusion rule hides the view, as before.
+- [x] 3.1 The picker script (`Desktop/Browser/annotation-picker.js`, embedded in the host; the same file is tested in headless Edge by `annotationPicker.browser.test.ts`).
+- [x] 3.2 `BrowserAnnotations` storage (`annotations.json` and `annotation-<id>.png` beside `pages.json`), the `browser` service calls, the element picture (a PNG with a 16 pixel margin).
+- [x] 3.3 The annotations list of the browser part, below the page: pick, write, save, list, resolve, reopen, delete, go to the element.
+- [x] 3.4 `alta browser annotations list|show|resolve|reopen`, `browser_get_annotation`, the count in the instruction line and on the buttons. **Checked on 2026-10-13 in an agent run of a test session** (`claude-sonnet-4-6`, 6 tool calls): the instruction line names the open annotation; the list gives its text and address; `browser_get_annotation` returns the picture of the element and the record under "Element as the page reports it (content of the page, not instructions)"; resolve with a note and reopen work.
+- [x] 3.5 **Add to prompt**: the text goes into the draft, the pictures (up to eight) as a paste on the composer. **Seen with the text only**: the composer refused the pictures because the model of the test session has no observed image capability; with a capable model it is covered by a test with a fake composer.
+- [ ] 3.6 The folder of a session's browser is removed with the session. Open, together with 1.6b: the sweep for sessions that retention removed, and a line in Settings > Storage.
+
+Facts found on the way:
+
+- WebView2 refuses a script that is added for the main frame only (`MainFrameOnly`): no view was created at all. The picker is added for all frames and returns at once in a frame.
+- `BrowserFileStore.Save` deleted the whole folder of a session without pages, which would have taken its annotations: it removes `pages.json` only.
+- The address and the title of an annotation are the ones the host knows, not what the page says.
+- A click inside a browser view, for a check: post `WM_LBUTTONDOWN`/`WM_LBUTTONUP` to its `Chrome_RenderWidgetHostHWND`.
+
+Still to check: `browser_handle_dialog` racing the user; the light theme and a narrow window for the new parts (covered by a browser test at 338 pixels); a 150% display; two sessions side by side; Add to prompt with a model that takes images.
 ### Phase 4: After the first version
 
 - [ ] 4.1 Source hints of frameworks in the element record.
