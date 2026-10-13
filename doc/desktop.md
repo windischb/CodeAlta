@@ -3884,6 +3884,59 @@ A session can be asked to open a pull request for its work. The sources are
   project is edited in place (name, description, instructions) and removed; the file name and where it is kept
   are chosen when it is created. `save` and `delete` write the file of the user or of the project.
 
+## Browser of a session
+
+A session has a browser of its own, on Windows: pages of the web shown in a part of its pane, at the right of
+its timeline and composer. It is meant for the application the session works on, usually on `localhost`.
+Another session in front does not show it; back in the session, it is there as it was left. The sources are
+in `Desktop/Browser/` (the pages and their views), `Desktop/Rpc/BrowserRpc.cs` (the `browser` service) and
+`frontend/src/browser/` (the part of the pane).
+
+- **Opening it.** The globe button of the composer row, beside the session info button, or the command
+  **Browser** (`/browser`) for the session in front, shows and hides the browser part. Whether it is open and
+  how wide it is are kept for each session in the window (`codealta.desktop.browser.v1`, the last 256 sessions).
+  The part is 560 pixels wide by default and resized with the splitter at its left, down to 320. In a pane
+  narrower than 680 pixels it takes the whole pane, and the conversation under it takes no input until the
+  part is closed with its own button.
+- **Pages.** The strip at the top lists the pages of the session: a click puts one in front, the cross or a
+  middle click closes it, **+** opens an empty one. A session has 16 pages at most. The toolbar goes back and
+  forward, loads again or stops, takes an address, opens the developer tools of the page and closes the part.
+  What is typed without a scheme is a host: `http` for this computer and its network (`localhost`, a loopback
+  or private address, a name without a dot), `https` for everything else (`BrowserAddress.Parse`).
+- **What loads.** `http` and `https` addresses and the empty page, whoever asks: the address field, a link of
+  a page, a redirect. A file of the disk, the scheme of the application and a script are refused. A document
+  that asks for a new window gets a new page of the same session. Permission requests (camera, location,
+  notifications) are denied and downloads are cancelled.
+- **Isolation.** The pages are views of a browser environment of their own (`webview-browser` in the data
+  folder of the instance): another browser process, other cookies and storage than the window, no scheme of
+  the application and no bridge to the host. A page of the web can neither load the application nor ask
+  anything of it. Every session shares that one profile, so a sign-in holds in all of them.
+- **A native view.** A page is not drawn by the window's page: it is a second browser view of the window that
+  lies above it. The pane draws a frame and an empty placeholder and tells the host where the placeholder is,
+  in the pixels of the display (`browser.place`); the host shows the page in front of that session there and
+  hides every other one. On Windows a view is created on the handle of the window, raised above the view of
+  the application once, and moved, hidden and given the keyboard through the WebView2 controller that NeoAstra
+  lends (`BrowserViewInterop`), since NeoAstra places a view only when it creates it.
+- **What hides it.** A view is hidden while its session is not the one a pane shows, while Settings is open,
+  and while something of the window has to appear above it: a modal window, or a menu, a popover, a toast or
+  a banner whose box crosses it (`nativeViewOcclusion.ts`). The placeholder then shows a picture of the page,
+  taken when the pointer last came back from the view or the page finished loading, or the title and the
+  address of the page when there is none. A toast that stays on screen over the view hides it for as long as
+  it is there. A `title` tooltip of the window appears under a view.
+- **Keyboard.** A click in a page gives it the keyboard, and the shortcuts of the window do not reach the
+  window while a page has it: a click in the window takes it back. Enter in the address field gives the
+  keyboard to the page. A window that is used again after another application gives the keyboard to the page
+  that had it, and a page that is hidden while it has the keyboard gives it back to the window.
+- **Kept and let go.** The pages of a session (addresses, titles, order, the one in front) are kept in
+  `browser/<session id>/pages.json` under the state of the instance, read when the browser of the session is
+  first asked for, and removed when the session is deleted. A page keeps its view while its session is not
+  shown. Views cost memory, about 30 to 70 MB each: beyond twelve, the one shown longest ago is let go, and its
+  page loads its address again when it is next shown. A session that the retention of sessions removes leaves
+  its small `pages.json` behind.
+- **Limits.** Windows only: on macOS and Linux the part says that this system has no browser. A click in a
+  page does not make its pane the active one. The tools that see and drive the window (below) do not list
+  these pages.
+
 ## UI tools
 
 A session can see and drive the window it runs in. The tools are those of
@@ -3898,7 +3951,8 @@ WKWebView and WebKitGTK. The sources are in `Desktop/Ui/` (the tools and their p
   `list_network_requests`, `get_network_request`, `list_pages`, `select_page`, `navigate_page` and
   `resize_page`. `new_page` and `close_page` are left out: the pages are the windows of the application,
   not those of a browser. The view only loads the application's own document, so `navigate_page` is of use
-  with the type `reload`.
+  with the type `reload`. The pages of the browsers of the sessions are views of the window too, and are not
+  pages of these tools (`PageFilter`, by the label of the view).
 - **They are tools, not `alta` commands.** A result holds a text and images, which an `alta` command cannot
   return.
 - **On request.** The tools are two dozen, so a session does not carry them until it asks for them.

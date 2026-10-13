@@ -167,6 +167,15 @@ there, with its components, its state modules, their tests and its stylesheet:
 - `lent/`: the entries of the libraries lent to plugins and the `codealta` module (below).
 - `spaces/`: the spaces (the rules of what a space shows, the link to the host, the switch of the title bar, the bar of the Explorer, the window that creates one, the settings page).
 - `bookmarks/`: the bookmarks (the link to the host, the tab that lists them, the marks of the rows of a timeline and the rail beside it, the requests that show a message of a timeline).
+- `browser/`: the browser of a session (the link to the host, the part of the session pane with its strip of pages and its toolbar, the place of the native view, what hides it).
+
+A native view lies above everything the page draws. The browser of a session is one: the page draws a frame
+and an empty placeholder, and tells the host where the placeholder is (`browser/browserPlacement.ts`). Whatever
+the page shows above other content has to hide such a view first, and nothing of the page says in one place
+that an overlay opened: `browser/nativeViewOcclusion.ts` watches the document for the elements overlays are
+made of (`overlaySelectors`). An overlay that is built from none of them, such as a new hand-made menu, is
+added to that list, or it appears under the view. A `title` tooltip cannot be seen from the page and is left
+under the view.
 
 Rules for these sources:
 
