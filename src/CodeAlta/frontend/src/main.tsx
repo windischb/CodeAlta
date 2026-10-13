@@ -1950,14 +1950,14 @@ function App() {
   useEffect(() => { persistBrowserPanes(value => localStorage.setItem(browserPanesKey, value), browserPanes); }, [browserPanes]);
   const changeBrowserPane = (id: string, change: Partial<BrowserPaneState>) => setBrowserPanes(current => withBrowserPane(current, id, change));
   const toggleBrowser = (id: string) => setBrowserPanes(current => withBrowserPane(current, id, { open: !browserPaneOf(current, id).open }));
-  // A session whose tab is closed is no longer shown by the window: the host lets its views go and keeps its
-  // pages. One that is gone from the catalog as well has nothing to keep here either.
+  // A session whose tab is closed keeps its browser as it is: a click on another session replaces a preview tab,
+  // and coming back must find the pages as they were left. The host bounds what that costs by letting go of the
+  // views shown longest ago. A session that is gone from the catalog has nothing to keep here.
   const browserSessions = useRef<ReadonlySet<string>>(new Set());
   useEffect(() => {
     const open = new Set(tabs.open.map(tab => tab.sessionId));
     const closed = [...browserSessions.current].filter(id => !open.has(id));
     browserSessions.current = open;
-    for (const id of closed) browserHub.release(id);
     const gone = snapshot ? closed.filter(id => !snapshot.sessions.some(row => row.id === id)).map(id => id.toLowerCase()) : [];
     if (gone.length) setBrowserPanes(current => withoutBrowserPanes(current, id => !gone.includes(id)));
   }, [tabs, snapshot, browserHub]);
