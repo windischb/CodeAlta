@@ -187,6 +187,13 @@ Facts found on the way:
 - [ ] 4.4 macOS and Linux over the NeoAstra API, once released; remove the Windows-only placement.
 - [ ] 4.5 Links of messages to `http://localhost…` offer "Open in CodeAlta"; downloads; accelerators of the shell while the browser has the keyboard.
 
+### Phase 5: A browser in a window of its own (asked by the user on 2026-10-13, after phase 2)
+
+For several monitors: the browser of a session is taken out of its pane and shown in a window of its own.
+
+- [ ] 5.1 Spike: move a view to another window without loading it again (`ICoreWebView2Controller.put_ParentWindow`), with NeoAstra as released. The fallback is a new view in the new window, which loads the address again.
+- [ ] 5.2 First version: the window shows the page alone, and fills it; nothing of the application lies over it there, so nothing hides it. The strip of pages and the toolbar stay in the session pane. The window names its session in its title, keeps showing that session's page while another session is in front, and remembers its place and its monitor for each session. Closing the window puts the browser back in the pane.
+- [ ] 5.3 Later, if the address field apart from the page is in the way: a toolbar of its own in the window. The application has one window with a page of its own today, so this is the larger step.
 ### Docs, with the phase that changes behavior
 
 - [ ] `doc/desktop.md`: a "Browser" section (tab, isolation, placement, annotations), and "UI tools" (the filter, the second tool set).
