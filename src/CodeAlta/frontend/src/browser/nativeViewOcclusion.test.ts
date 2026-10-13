@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createNativeViewOcclusion, crossed, intersects, modalSelector, overlayAttributes, overlaySelectors, type PageRect } from "./nativeViewOcclusion";
+import { createNativeViewOcclusion, crossed, intersects, leastToastWidth, modalSelector, overlayAttributes, overlaySelectors, toastInsetProperties, toastInsets, type PageRect } from "./nativeViewOcclusion";
 
 const rect = (left: number, top: number, width: number, height: number): PageRect => ({ left, top, right: left + width, bottom: top + height });
 
@@ -27,6 +27,58 @@ test("a view is crossed when one of the boxes crosses it", () => {
   assert.equal(crossed(view, []), false);
   assert.equal(crossed(view, [rect(0, 0, 100, 100), rect(0, 500, 100, 100)]), false);
   assert.equal(crossed(view, [rect(0, 0, 100, 100), rect(880, 380, 100, 100)]), true);
+});
+
+test("toasts go to the rightmost stretch of the window that no native view takes", () => {
+  // No browser is shown: the toasters are where they are by themselves.
+  assert.equal(toastInsets(1600, []), null);
+  assert.equal(toastInsets(0, [rect(0, 0, 10, 10)]), null);
+  // One session with its browser at the right: beside it, over the conversation.
+  assert.deepEqual(toastInsets(1600, [rect(1040, 80, 560, 800)]), { left: 0, right: 560 });
+  // Two sessions side by side, each with its browser: the conversation of the right one.
+  assert.deepEqual(toastInsets(2000, [rect(500, 80, 500, 800), rect(1500, 80, 500, 800)]), { left: 1000, right: 500 });
+  // The right conversation is too narrow for a toast: the left one.
+  assert.deepEqual(toastInsets(1600, [rect(500, 80, 500, 800), rect(1200, 80, 400, 800)]), { left: 0, right: 1100 });
+  // A browser that is not at the right edge leaves the right of the window free.
+  assert.deepEqual(toastInsets(1600, [rect(300, 80, 500, 800)]), { left: 800, right: 0 });
+  // The stretch has the least width, and not a pixel less.
+  assert.deepEqual(toastInsets(1000, [rect(leastToastWidth, 0, 1000, 800)]), { left: 0, right: 1000 - leastToastWidth });
+  assert.equal(toastInsets(1000, [rect(leastToastWidth - 1, 0, 1000, 800)]), null);
+  // A narrow window whose browser takes it all, parts that overlap, and parts without width.
+  assert.equal(toastInsets(700, [rect(0, 80, 700, 600)]), null);
+  assert.deepEqual(toastInsets(1600, [rect(900, 0, 400, 800), rect(1000, 0, 600, 800)]), { left: 0, right: 700 });
+  assert.equal(toastInsets(1600, [rect(900, 0, 0, 800)]), null);
+});
+
+test("the toasters are moved beside the parts that show a native view, and back when none does", () => {
+  const properties = new Map<string, string>();
+  let writes = 0;
+  const root = { body: {}, documentElement: { clientWidth: 1600, style: {
+    setProperty: (name: string, value: string) => { properties.set(name, value); writes++; },
+    removeProperty: (name: string) => { properties.delete(name); writes++; } } } } as unknown as Document;
+  const occlusion = createNativeViewOcclusion(root, { request: () => 0, cancel: () => { } });
+  const first = {}, second = {};
+  occlusion.reserve(first, rect(1040, 80, 560, 800));
+  assert.deepEqual(Object.fromEntries(properties), { [toastInsetProperties.left]: "0px", [toastInsetProperties.right]: "560px" });
+  // Asked again at each frame: nothing is written while nothing moved.
+  const written = writes;
+  occlusion.reserve(first, rect(1040, 90, 560, 700));
+  assert.equal(writes, written);
+  // The splitter moved; then another session shows its browser beside this one.
+  occlusion.reserve(first, rect(940, 80, 660, 800));
+  assert.equal(properties.get(toastInsetProperties.right), "660px");
+  occlusion.reserve(second, rect(0, 80, 400, 800));
+  assert.deepEqual(Object.fromEntries(properties), { [toastInsetProperties.left]: "400px", [toastInsetProperties.right]: "660px" });
+  // The window got narrower without the parts moving: the room is looked at again.
+  (root.documentElement as unknown as { clientWidth: number }).clientWidth = 1200;
+  occlusion.reserve(second, rect(0, 80, 400, 800));
+  assert.deepEqual(Object.fromEntries(properties), { [toastInsetProperties.left]: "400px", [toastInsetProperties.right]: "260px" });
+  occlusion.reserve(second, null);
+  occlusion.reserve(first, null);
+  assert.equal(properties.size, 0);
+  const cleared = writes;
+  occlusion.reserve(first, null);
+  assert.equal(writes, cleared);
 });
 
 test("the overlays of the window are named once, and each name is a selector", () => {

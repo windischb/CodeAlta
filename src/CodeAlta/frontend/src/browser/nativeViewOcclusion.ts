@@ -4,6 +4,10 @@
 // The application has no single component that every overlay goes through, so the document is watched for
 // the elements overlays are made of. The `title` tooltips of the system cannot be seen from the page: they
 // are left to appear under the view.
+//
+// A toast is the one overlay that stays without the user asking for it (the notice of an update stays until
+// it is closed), so toasts are kept out of the way instead: the toasters of the window are moved beside the
+// parts of the window that show a native view. A toast that crosses a view all the same hides it, as before.
 
 /** A rectangle of the page, in CSS pixels. */
 export type PageRect = Readonly<{ left: number; top: number; right: number; bottom: number }>;
@@ -54,6 +58,29 @@ export function crossed(rect: PageRect, boxes: Iterable<PageRect>): boolean {
   return false;
 }
 
+/** The least width toasts are given beside native views, in CSS pixels: a toast of 300 and the margins of its container. */
+export const leastToastWidth = 340;
+/** The properties of the root element that say where the toasters are: how far from the left and the right edge of the window. */
+export const toastInsetProperties = Object.freeze({ left: "--native-view-toast-left", right: "--native-view-toast-right" });
+
+/**
+ * Where toasts go in a window of `width` so that they cross none of `parts`, the parts of the window that show
+ * a native view: the rightmost stretch of the width that no part takes and that is at least `least` wide, as
+ * the distances from the left and the right edge of the window. Null when no part takes anything, or no
+ * stretch is wide enough: the toasters are then where they are by themselves.
+ */
+export function toastInsets(width: number, parts: Iterable<PageRect>, least = leastToastWidth): Readonly<{ left: number; right: number }> | null {
+  const taken = [...parts].map(part => ({ left: Math.max(0, part.left), right: Math.min(width, part.right) })).filter(part => part.right > part.left).sort((a, b) => a.left - b.left);
+  if (!(width > 0) || taken.length === 0) return null;
+  // The stretches between the parts, from the left; the last one that is wide enough is the one.
+  let free: { left: number; right: number } | null = null, edge = 0;
+  for (const part of [...taken, { left: width, right: width }]) {
+    if (part.left - edge >= least) free = { left: edge, right: part.left };
+    edge = Math.max(edge, part.right);
+  }
+  return free && { left: Math.round(free.left), right: Math.round(width - free.right) };
+}
+
 export type NativeViewOcclusion = ReturnType<typeof createNativeViewOcclusion>;
 
 /**
@@ -69,6 +96,20 @@ export function createNativeViewOcclusion(root: Document = document, frames: Rea
   let frame: number | null = null;
   // What the last search found; null when the document changed since.
   let found: { modal: boolean; overlays: readonly Element[] } | null = null;
+  // The parts of the window that show a native view, by who shows it, and where the toasters were last put.
+  const parts = new Map<object, PageRect>();
+  let insets: Readonly<{ left: number; right: number }> | null = null;
+  // The width of the window when the toasters were last put.
+  let width = 0;
+
+  function placeToasts() {
+    const next = toastInsets(root.documentElement.clientWidth, parts.values());
+    if (next?.left === insets?.left && next?.right === insets?.right) return;
+    insets = next;
+    const style = root.documentElement.style;
+    if (next) { style.setProperty(toastInsetProperties.left, `${next.left}px`); style.setProperty(toastInsetProperties.right, `${next.right}px`); }
+    else { style.removeProperty(toastInsetProperties.left); style.removeProperty(toastInsetProperties.right); }
+  }
 
   function changed() {
     found = null;
@@ -103,6 +144,20 @@ export function createNativeViewOcclusion(root: Document = document, frames: Rea
         found = null;
         if (frame !== null) { frames.cancel(frame); frame = null; }
       };
+    },
+    /**
+     * Says which part of the window `owner` shows a native view in, with its frame, or with null that it shows
+     * none any more: the toasters of the window are put beside these parts (`toastInsets`), through two
+     * properties of the root element that their stylesheet reads. It is asked at each frame: nothing is done
+     * while nothing moved.
+     */
+    reserve(owner: object, rect: PageRect | null) {
+      const before = parts.get(owner), wide = root.documentElement.clientWidth;
+      if (!rect) { if (!parts.delete(owner)) return; }
+      else if (before && before.left === rect.left && before.right === rect.right && wide === width) return;
+      else parts.set(owner, { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom });
+      width = wide;
+      placeToasts();
     },
     /**
      * Whether something of the page has to appear above a native view shown in `rect`: a modal dialog is

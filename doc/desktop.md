@@ -231,7 +231,8 @@ comes back; opening About can refresh a check after five minutes. Startup, perio
 checks share one in-flight request. A failed check keeps a known available version and can be
 retried after five minutes. Each newer version is announced once per page lifetime, in a bottom-right
 notice that stays until dismissed rather than disappearing after a few seconds. It has its own
-toaster, so transient messages cannot evict it. A result received while the
+toaster, so transient messages cannot evict it. While a session shows its browser, this notice and the
+other toasts are beside the browser part, not over it (see "Browser of a session"). A result received while the
 window is hidden is announced when it comes back. Installing a version and opening its release
 notes use what the last look found. Closing the application cancels and joins the check and stops
 its timer. The
@@ -3921,8 +3922,17 @@ in `Desktop/Browser/` (the pages and their views, the tools of the sessions and 
   and while something of the window has to appear above it: a modal window, or a menu, a popover, a toast or
   a banner whose box crosses it (`nativeViewOcclusion.ts`). The placeholder then shows a picture of the page,
   taken when the pointer last came back from the view or the page finished loading, or the title and the
-  address of the page when there is none. A toast that stays on screen over the view hides it for as long as
-  it is there. A `title` tooltip of the window appears under a view.
+  address of the page when there is none. A `title` tooltip of the window appears under a view.
+- **Toasts stay beside it.** A toast is the one overlay that stays without being asked for (the notice of an
+  update stays until it is closed), and would hide a view it crosses for as long. Each browser part that is
+  shown with a page says where it is (`NativeViewOcclusion.reserve`), and the two toasters of the window
+  (`app-toaster` at the top right, `app-update-toaster` at the bottom right) are put in the rightmost stretch
+  of the width of the window that no browser part takes (`toastInsets`, through the properties
+  `--native-view-toast-left` and `--native-view-toast-right` of the root element, which their container reads
+  as padding): over the conversation of the session, or of the right one of two sessions side by side. A toast
+  is as wide as that stretch allows, 500 pixels at most. A stretch narrower than 340 pixels takes no toast:
+  in a window that narrow the toasters are where they are without a browser, and a toast that crosses the
+  view hides it, as every other overlay does.
 - **Keyboard.** A click in a page gives it the keyboard, and the shortcuts of the window do not reach the
   window while a page has it: a click in the window takes it back. Enter in the address field gives the
   keyboard to the page. A window that is used again after another application gives the keyboard to the page

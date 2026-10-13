@@ -1828,6 +1828,9 @@ button.project-context-pull:hover, button.project-context-pull:focus-visible, bu
 
 /* Toasts appear below the title bar, clear of the window controls. */
 .app-toaster.bp6-toast-container { padding-top: 46px; }
+/* While a session shows its browser, the toasts are beside it: a toast over a native view would hide the view for as
+   long as it stays (`nativeViewOcclusion.ts` says where). A toast is as wide as the room it has there. */
+.app-toaster.bp6-toast-container, .app-update-toaster.bp6-toast-container { padding-left: calc(20px + var(--native-view-toast-left, 0px)); padding-right: calc(20px + var(--native-view-toast-right, 0px)); }
 
 /* Notes window: a title with its icon, icon actions, and text at the reading size of the timeline. */
 .notes-pane > header > .notes-title { display: inline-flex; grid-auto-flow: column; align-items: center; gap: 6px; color: var(--text); }

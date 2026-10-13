@@ -175,7 +175,9 @@ the page shows above other content has to hide such a view first, and nothing of
 that an overlay opened: `browser/nativeViewOcclusion.ts` watches the document for the elements overlays are
 made of (`overlaySelectors`). An overlay that is built from none of them, such as a new hand-made menu, is
 added to that list, or it appears under the view. A `title` tooltip cannot be seen from the page and is left
-under the view.
+under the view. Toasts are not hidden behind but kept beside: a part that shows a native view reserves its
+place (`reserve`), and a new toaster takes the padding of `.app-toaster` in `style.css`, which reads where the
+free stretch of the window is.
 
 Rules for these sources:
 

@@ -120,6 +120,38 @@ test("the browser of a session says where its page is, hides it behind what the 
     await act("document.getElementById('menu').remove()");
     await placed("the menu closed");
 
+    // A toast of the window is beside the browser, as wide as the room it has there: it does not hide the view.
+    const toast = (name: string) => `const host = document.createElement('div'); host.id = 'toasts'; host.className = 'bp6-toast-container bp6-toast-container-in-portal bp6-toast-container-${name === "app-toaster" ? "top" : "bottom"} bp6-toast-container-right ${name}';
+      host.innerHTML = '<div class="bp6-toast"><span class="bp6-toast-message">CodeAlta 9.9.9 is available, and this notice stays until it is closed.</span></div>'; document.body.append(host)`;
+    const beside = `(() => { const box = document.querySelector('#toasts .bp6-toast').getBoundingClientRect(), pane = document.querySelector('.browser-pane').getBoundingClientRect();
+      return box.width >= 300 && box.left >= 0 && box.right <= pane.left; })()`;
+    for (const name of ["app-toaster", "app-update-toaster"]) {
+      await act(toast(name));
+      await act("");
+      assert.ok(await evaluate(beside), `${name}: beside the browser`);
+      await placed(`${name}: a toast beside the browser leaves the view shown`);
+      assert.equal(await evaluate("document.querySelector('.browser-covered, .browser-still')"), null);
+      await act("document.getElementById('toasts').remove()");
+    }
+    // The pane goes: the toasts are back at the edge of the window.
+    await act(toast("app-toaster"));
+    await act(`${f}.setShown(false)`);
+    await hidden("a pane that is not shown, with a toast");
+    assert.ok(await evaluate("Math.abs(document.querySelector('#toasts .bp6-toast').getBoundingClientRect().right - (document.documentElement.clientWidth - 20)) < 1"));
+    await act(`${f}.setShown(true)`);
+    await until(beside);
+    await placed("shown again, with the toast beside it");
+    // A window too narrow for a toast beside the browser: the toast is where it is by itself, and hides the view it crosses.
+    await command("Emulation.setDeviceMetricsOverride", { width: 640, height: 700, deviceScaleFactor: 1.5, mobile: false });
+    await act(`${f}.setSize({ width: 600, height: 600 })`);
+    await hidden("a toast over the view of a narrow window");
+    assert.ok(await evaluate("(() => { const box = document.querySelector('#toasts .bp6-toast').getBoundingClientRect(); return box.width >= 300 && box.left >= 0 && box.right <= window.innerWidth; })()"), "the toast is whole in a narrow window");
+    await act("document.getElementById('toasts').remove()");
+    await placed("the toast closed");
+    await command("Emulation.setDeviceMetricsOverride", { width: 1200, height: 700, deviceScaleFactor: 1.5, mobile: false });
+    await act(`${f}.setSize({ width: 1000, height: 600 })`);
+    await placed("the window as it was");
+
     // The pointer comes back from the view: a picture of the page is taken, and drawn while the view is hidden.
     // The pictures taken after the pane was shown are over by now, and none was given.
     await act(`${state}.still = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='; await new Promise(resolve => setTimeout(resolve, 1400))`);

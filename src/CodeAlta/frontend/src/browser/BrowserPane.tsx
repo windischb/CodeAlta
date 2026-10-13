@@ -67,6 +67,8 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
   // The page whose dialog was answered here: it takes the keyboard back once its view is shown again.
   const answered = useRef<string | null>(null);
   const pane = useRef<HTMLElement>(null);
+  // What this pane is to who keeps the toasts of the window beside the browsers.
+  const [reservation] = useState(() => ({}));
   const visible = useRef(false);
   const lastStill = useRef(Number.NEGATIVE_INFINITY);
 
@@ -82,6 +84,8 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
     let placed: BrowserBounds | null | undefined;
     const look = () => {
       const element = placeholder.current;
+      // The toasts of the window stay beside this part while it has a page, shown or hidden for a moment.
+      occlusion.reserve(reservation, element && pane.current ? pane.current.getBoundingClientRect() : null);
       const box = element && frontPage.current && !dialogShown.current ? element.getBoundingClientRect() : null;
       const hidden = !!box && occlusion.occludes(box, element);
       const bounds = box && !hidden ? deviceBounds(box, window.devicePixelRatio) : null;
@@ -102,10 +106,11 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
     return () => {
       cancelAnimationFrame(frame);
       unsubscribe();
+      occlusion.reserve(reservation, null);
       visible.current = false;
       hub.place(sessionId, null);
     };
-  }, [hub, occlusion, sessionId, shown, supported]);
+  }, [hub, occlusion, reservation, sessionId, shown, supported]);
 
   // A picture of the page in front, to draw in its place while the view is hidden behind something of the
   // window. A picture needs a view that is shown and takes a moment, so it is taken ahead of time: when the
