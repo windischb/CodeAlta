@@ -194,6 +194,15 @@ For several monitors: the browser of a session is taken out of its pane and show
 - [ ] 5.1 Spike: move a view to another window without loading it again (`ICoreWebView2Controller.put_ParentWindow`), with NeoAstra as released. The fallback is a new view in the new window, which loads the address again.
 - [ ] 5.2 First version: the window shows the page alone, and fills it; nothing of the application lies over it there, so nothing hides it. The strip of pages and the toolbar stay in the session pane. The window names its session in its title, keeps showing that session's page while another session is in front, and remembers its place and its monitor for each session. Closing the window puts the browser back in the pane.
 - [ ] 5.3 Later, if the address field apart from the page is in the way: a toolbar of its own in the window. The application has one window with a page of its own today, so this is the larger step.
+### Later, if needed: a DevTools connection from outside (noted for the user on 2026-10-13)
+
+Not planned work: an option to come back to if the tools of phase 2 do not reach far enough.
+
+- A WebView2 view can be driven both ways at once: by the automation of NeoAstra from the host (a script in the page, phase 2), and over the debugging protocol of the browser (CDP), which is what Chrome DevTools MCP speaks. They work at different levels and should not get in each other's way; **this was not tried**.
+- How: a debugging port for the browser environment of the session browsers only (`NeoEnvironmentOptions.BrowserArguments`, `--remote-debugging-port`), not for the window of the application. Chrome DevTools MCP attaches to a running browser with `--browser-url=http://127.0.0.1:<port>` and sees the pages as tabs.
+- What it gives: trusted input (real hover, native lists), performance traces, CSS inspection, emulation.
+- What it costs: no separation by session (every page of every session is reachable over the port); any program of the computer that knows the port controls the pages and their sign-ins; a page opened from outside is probably not a page of a session; Windows only.
+- Shape, if built: a switch that is off by default, the loopback address only, a random port that the window shows, open only while the switch is on. First a short trial that both ways run side by side.
 ### Docs, with the phase that changes behavior
 
 - [ ] `doc/desktop.md`: a "Browser" section (tab, isolation, placement, annotations), and "UI tools" (the filter, the second tool set).
