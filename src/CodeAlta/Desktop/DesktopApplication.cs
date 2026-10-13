@@ -240,6 +240,8 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
         DesktopChangesView? changesView = null;
         DesktopEditorView? editorView = null;
         Terminals.DesktopTerminals? terminals = null;
+        Browser.DesktopBrowsers? browsers = null;
+        IAsyncDisposable? browserViewsLifetime = null;
         GitIssuesService? gitIssues = null;
         AppUpdateService? appUpdate = null;
         ModelCatalogService? providers = null;
@@ -406,6 +408,7 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
                 if (workspace is not null) await Task.WhenAll(workspace.CloseImportsAsync(), workspace.CloseSessionsAsync());
                 if (automations is not null) await automations.DisposeAsync(); // Nothing more is started; sessions end with the host.
                 if (terminals is not null) await terminals.CloseAsync(); // The programs of the terminals end with the application.
+                if (browsers is not null) await browsers.DisposeAsync(); // So do the pages of the browsers of the sessions.
                 if (reminders is not null) await reminders.DisposeAsync();
                 if (providers is not null) await providers.DrainAsync();
                 if (providerLogin is not null) await providerLogin.CloseAsync(); // A running sign-in is canceled and joined.
@@ -440,7 +443,9 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             Mark("view created");
             viewLifetime = view;
             // The window gives the keyboard to its page when it is used again, after a switch to another application.
-            DesktopWindowFocus.Follow(window, view, application.Dispatcher);
+            // A browser view of a session that had the keyboard last takes it instead; there is none before the host runs.
+            Func<bool>? browserKeyboard = null;
+            DesktopWindowFocus.Follow(window, view, application.Dispatcher, () => Volatile.Read(ref browserKeyboard)?.Invoke() == true);
             // The kept zoom, before the first document: the window never shows at another one.
             view.ZoomFactor = shell.Zoom / 100d;
             shell.ApplyZoom = factor => view.ZoomFactor = factor;
@@ -586,6 +591,15 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
                 canvases?.Attach(host.PluginRuntime, () => spaceView.ShownSpaceId);
                 terminals = new Terminals.DesktopTerminals(DesktopCommandLine.Version, Path.Combine(options.DataRoot, "terminal"));
                 shell.BusyTerminals = () => terminals.Busy;
+                // The browsers of the sessions: views of their own above the page, on a browser environment of their own.
+                // Their pages are kept with the state of this instance, and go with their session.
+                var browserViews = new Browser.WebViewBrowserViews(application, startedWindow, Path.Combine(options.DataRoot, "webview-browser"));
+                browserViewsLifetime = browserViews;
+                browserViews.KeyboardReturned = () => DesktopWindowFocus.Give(view);
+                Volatile.Write(ref browserKeyboard, browserViews.RestoreKeyboard);
+                var sessionBrowsers = new Browser.DesktopBrowsers(browserViews, new Browser.BrowserFileStore(Path.Combine(host.CatalogOptions.StateRoot, "browser")));
+                browsers = sessionBrowsers;
+                host.RuntimeService.SessionDeleted += sessionId => _ = sessionBrowsers.ForgetAsync(sessionId);
                 // The definitions are shared with every instance; what ran is this instance's. The developer
                 // instance starts paused, so that it does not run again what the normal one already runs.
                 automations = new Automations.AutomationService(host.CatalogOptions.ConfigPath, token => host.ProjectCatalog.LoadAsync(token),
@@ -728,6 +742,7 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
                     // while that folder is there, the folder of its project otherwise.
                     builder.AddTerminalsService(new TerminalsService(terminals, host.ProjectCatalog, epoch,
                         async (sessionId, token) => await SessionFolderAsync(host, sessionId, token).ConfigureAwait(false)));
+                    builder.AddBrowserService(new BrowserService(sessionBrowsers, epoch));
                     builder.AddMcpHostService(new McpHostService(mcp, McpTools, epoch));
                     builder.AddPromptImagesService(new PromptImagesService(host.WorkspaceReads, epoch));
                     builder.AddToolCallsService(new ToolCallsService(host.WorkspaceReads, host.RuntimeService.ToolOutput, epoch) { Jobs = host.RuntimeService.Jobs });
@@ -820,7 +835,7 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
         // The placement of the window for the next start, written while the window is still there.
         if (windowState is not null) await windowState.DisposeAsync();
         var nativeFailed = false;
-        foreach (var resource in new[] { uiLifetime, bindingLifetime, viewLifetime, rpcLifetime, instanceLifetime, sessionTaskbarProgress, chromeLifetime, environmentLifetime })
+        foreach (var resource in new[] { uiLifetime, bindingLifetime, browserViewsLifetime, viewLifetime, rpcLifetime, instanceLifetime, sessionTaskbarProgress, chromeLifetime, environmentLifetime })
         {
             if (resource is null) continue;
             try
@@ -922,6 +937,7 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             builder.AddWorktreesService(new WorktreesService());
             builder.AddMcpHostService(new McpHostService());
             builder.AddTerminalsService(new TerminalsService());
+            builder.AddBrowserService(new BrowserService());
             builder.AddAutomationsService(new AutomationsService());
             builder.AddWorkItemsService(new WorkItemsService());
             builder.AddBookmarksService(new BookmarksService());

@@ -36,7 +36,21 @@ internal sealed class DesktopWindowFocus
     /// <param name="view">The view that fills it.</param>
     /// <param name="dispatcher">The dispatcher of the thread of the window.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    internal static void Follow(NeoWindow window, global::NeoAstra.NeoAstra view, NeoDispatcher dispatcher)
+    internal static void Follow(NeoWindow window, global::NeoAstra.NeoAstra view, NeoDispatcher dispatcher) => Follow(window, view, dispatcher, null);
+
+    /// <summary>
+    /// Gives the keyboard to a view of a window each time the window is used again: to another view of the window
+    /// when that one had it last, to the page otherwise.
+    /// </summary>
+    /// <param name="window">The main window.</param>
+    /// <param name="view">The view that fills it.</param>
+    /// <param name="dispatcher">The dispatcher of the thread of the window.</param>
+    /// <param name="other">
+    /// Gives the keyboard to another view of the window that had it last, and tells whether one took it; null
+    /// when the window has no other view.
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="window"/>, <paramref name="view"/> or <paramref name="dispatcher"/> is null.</exception>
+    internal static void Follow(NeoWindow window, global::NeoAstra.NeoAstra view, NeoDispatcher dispatcher, Func<bool>? other)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(view);
@@ -45,7 +59,7 @@ internal sealed class DesktopWindowFocus
         var focus = new DesktopWindowFocus(
             () => window.IsClosed ? 0 : window.GetNativeHandle(NeoNativeHandleKind.Win32Hwnd).Value,
             GetFocus,
-            () => MoveFocus(view.GetNativeHandle(NeoNativeHandleKind.WebView2Controller).Value));
+            () => other?.Invoke() == true || MoveFocus(view.GetNativeHandle(NeoNativeHandleKind.WebView2Controller).Value));
         window.FocusChanged += (_, _) =>
         {
             if (!window.IsFocused || window.IsClosed) return;
@@ -53,6 +67,28 @@ internal sealed class DesktopWindowFocus
             try { dispatcher.Post(() => focus.Restore()); }
             catch (ObjectDisposedException) { /* The application is ending. */ }
         };
+    }
+
+    /// <summary>
+    /// Gives the keyboard to a view, whatever holds it: for the page of the application when another view of its
+    /// window that held the keyboard is hidden. Elsewhere than on Windows this does nothing.
+    /// </summary>
+    /// <param name="view">The view.</param>
+    /// <returns>True when the view was given the keyboard.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="view"/> is null.</exception>
+    internal static bool Give(global::NeoAstra.NeoAstra view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        if (!OperatingSystem.IsWindows()) return false;
+        try
+        {
+            return MoveFocus(view.GetNativeHandle(NeoNativeHandleKind.WebView2Controller).Value);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or NotSupportedException or ObjectDisposedException
+            or DllNotFoundException or EntryPointNotFoundException)
+        {
+            return false; // The view is going away, or is not a WebView2: the keyboard stays where it is.
+        }
     }
 
     /// <summary>Gives the keyboard to the page when the window itself holds it.</summary>
