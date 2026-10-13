@@ -123,6 +123,8 @@ internal sealed partial class DesktopBrowsers
                 picture is null ? null : BrowserAnnotationStore.ImageName(id, picture.MediaType), picture?.MediaType, DateTimeOffset.UtcNow);
             session.Annotations.Add(annotation);
             session.Pending = null;
+            // The pictures held in memory are few: the others are read from their files.
+            if (session.Pictures.Count >= 32) session.Pictures.Clear();
             session.Pictures[id] = picture;
             Keep(session, annotation, picture);
             StartClock();
