@@ -90,8 +90,14 @@ internal sealed class FakeView(string pageId, Action<Uri> openPage) : IBrowserVi
     /// <summary>The numbers of the annotations whose element the page finds.</summary>
     public HashSet<int> Found { get; } = [];
 
-    /// <summary>The parts of the view that were captured.</summary>
-    public List<BrowserBounds> Regions { get; } = [];
+    /// <summary>What the view gives as a picture of what it shows: a white JPEG of the viewport the picker reports, 1280 by 800 pixels.</summary>
+    public BrowserCapture? Picture { get; set; } = Jpeg(1280, 800);
+
+    /// <summary>The number of the badge that the page says was clicked, with where its element is, as the picker writes it; null for none.</summary>
+    public string? OpenedState { get; set; }
+
+    /// <summary>What the picker answers when it is asked to bring an element into sight.</summary>
+    public string LocateState { get; set; } = """{"found":true,"scrolled":false,"rect":{"x":10,"y":20,"width":30,"height":40},"viewport":{"width":1280,"height":800}}""";
 
     public ValueTask<string?> EvaluateAsync(string script, CancellationToken cancellationToken)
     {
@@ -107,13 +113,16 @@ internal sealed class FakeView(string pageId, Action<Uri> openPage) : IBrowserVi
             return ValueTask.FromResult(Text($$"""{"found":[{{string.Join(',', asked.Where(Found.Contains))}}]}"""));
         }
 
-        return ValueTask.FromResult(Text("""{"found":true}"""));
-    }
+        if (script.Contains(".opened()", StringComparison.Ordinal))
+        {
+            var opened = OpenedState ?? """{"number":null}""";
+            OpenedState = null;
+            return ValueTask.FromResult(Text(opened));
+        }
 
-    public ValueTask<BrowserCapture?> CaptureRegionAsync(BrowserBounds region, CancellationToken cancellationToken)
-    {
-        Regions.Add(region);
-        return ValueTask.FromResult<BrowserCapture?>(new BrowserCapture(new byte[] { 0x89, 0x50, 0x4e, 0x47 }, "image/png", region.Width, region.Height));
+        if (script.Contains(", false)", StringComparison.Ordinal) && script.Contains(".reveal(", StringComparison.Ordinal)) return ValueTask.FromResult(Text(LocateState));
+
+        return ValueTask.FromResult(Text("""{"found":true}"""));
     }
 
     /// <summary>The answers to the dialogs of the page, in order: "accept", "accept:&lt;text&gt;" or "dismiss".</summary>
@@ -133,8 +142,16 @@ internal sealed class FakeView(string pageId, Action<Uri> openPage) : IBrowserVi
         return ValueTask.FromResult(true);
     }
 
-    public ValueTask<BrowserCapture?> CaptureAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult<BrowserCapture?>(new BrowserCapture(new byte[] { 0xff, 0xd8, 0xff, 0xd9 }, "image/jpeg", 2, 1));
+    public ValueTask<BrowserCapture?> CaptureAsync(CancellationToken cancellationToken) => ValueTask.FromResult(Picture);
+
+    private static BrowserCapture Jpeg(int width, int height)
+    {
+        using var bitmap = new SkiaSharp.SKBitmap(width, height);
+        bitmap.Erase(SkiaSharp.SKColors.White);
+        using var image = SkiaSharp.SKImage.FromBitmap(bitmap);
+        using var data = image.Encode(SkiaSharp.SKEncodedImageFormat.Jpeg, 80);
+        return new BrowserCapture(data.ToArray(), "image/jpeg", width, height);
+    }
 
     public ValueTask DisposeAsync()
     {

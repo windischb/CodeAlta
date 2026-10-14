@@ -17,6 +17,9 @@ const state = {
   places: [] as (BrowserBounds | null)[],
   status: "ok",
   still: null as string | null,
+  pickStill: null as string | null,
+  // The last opening of an annotation the pane took.
+  taken: 0,
   annotations: null as BrowserAnnotationsItem | null,
   prompt: { status: "ok", text: "The annotations", pictures: [] as number[] },
 };
@@ -53,6 +56,13 @@ const hub: BrowserHub = {
   saveAnnotation: (sessionId, text) => annotated("saveAnnotation", sessionId, text),
   discardPick: sessionId => annotated("discardPick", sessionId),
   changeAnnotation: (sessionId, number, action) => annotated("changeAnnotation", sessionId, number, action),
+  pickStill: sessionId => { state.calls.push(`pickStill ${sessionId}`); return Promise.resolve(state.pickStill); },
+  takeOpened: () => {
+    const opened = state.annotations?.opened ?? null;
+    if (!opened || opened.sequence <= state.taken) return null;
+    state.taken = opened.sequence;
+    return opened;
+  },
   annotationImage: (sessionId, number) => { state.calls.push(`annotationImage ${sessionId} ${number}`); return Promise.resolve(state.still); },
   annotationPrompt: sessionId => { state.calls.push(`annotationPrompt ${sessionId}`); return Promise.resolve(state.prompt); },
   capture: (sessionId, pageId) => { state.calls.push(`capture ${sessionId} ${pageId}`); return Promise.resolve(state.still ? { image: state.still, width: 1, height: 1 } : null); },

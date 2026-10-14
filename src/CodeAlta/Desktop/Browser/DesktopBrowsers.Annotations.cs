@@ -9,7 +9,17 @@ namespace CodeAlta.Desktop.Browser;
 /// <param name="Title">The title of that page.</param>
 /// <param name="Element">The element as the page reported it.</param>
 /// <param name="Image">A picture of the element with some margin, or null when none could be taken.</param>
-internal sealed record BrowserPendingPick(string PageId, string Address, string Title, BrowserElementRecord Element, BrowserCapture? Image);
+/// <param name="Still">
+/// A picture of the whole viewport at the moment of the pick, which the window shows in the place of the page
+/// while the text is written; null when none could be taken.
+/// </param>
+internal sealed record BrowserPendingPick(string PageId, string Address, string Title, BrowserElementRecord Element, BrowserCapture? Image, BrowserCapture? Still = null);
+
+/// <summary>An annotation the user opened, from the badge of its mark in the page or from the list.</summary>
+/// <param name="Number">The number of the annotation.</param>
+/// <param name="Place">Where its element is in the page in front; null when that page does not show it.</param>
+/// <param name="Sequence">What tells this opening from the ones before: it grows with each one.</param>
+internal sealed record BrowserOpenedAnnotation(int Number, BrowserElementPlace? Place, int Sequence);
 
 /// <summary>An annotation, and whether its element is on the page the session shows.</summary>
 /// <param name="Annotation">The annotation.</param>
@@ -24,7 +34,9 @@ internal sealed record BrowserAnnotationState(BrowserAnnotation Annotation, bool
 /// <param name="Annotations">Its annotations: the open ones first, each group by number.</param>
 /// <param name="PickingPageId">The page in which the user is picking an element, or null.</param>
 /// <param name="Pending">The element that was picked and waits for its text, or null.</param>
-internal sealed record BrowserAnnotationsInfo(string SessionId, IReadOnlyList<BrowserAnnotationState> Annotations, string? PickingPageId, BrowserPendingPick? Pending)
+/// <param name="Opened">The annotation the user opened last, or null.</param>
+internal sealed record BrowserAnnotationsInfo(string SessionId, IReadOnlyList<BrowserAnnotationState> Annotations, string? PickingPageId, BrowserPendingPick? Pending,
+    BrowserOpenedAnnotation? Opened = null)
 {
     /// <summary>Gets how many annotations wait to be done.</summary>
     internal int Open => Annotations.Count(static state => state.Annotation.IsOpen);
@@ -65,6 +77,7 @@ internal sealed partial class DesktopBrowsers
     private Timer? _pickClock;
     private bool _ticking;
     private long _round;
+    private int _openings;
 
     /// <summary>
     /// Gets whether the browsers ask their pages by themselves, on a clock, while an element is being picked or
@@ -205,6 +218,43 @@ internal sealed partial class DesktopBrowsers
         }).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Opens an annotation for the user to read and change it at its element: when the page in front shows its
+    /// address and finds its element, the element is brought into sight and its place is told with the annotations
+    /// of the session; otherwise it is opened without a place.
+    /// </summary>
+    /// <param name="sessionId">The session.</param>
+    /// <param name="number">The number of the annotation.</param>
+    internal Task<BrowserAnnotationResult> OpenAnnotationAsync(string sessionId, int number) => AnnotateAsync(sessionId, async session =>
+    {
+        if (session.Annotations.FirstOrDefault(candidate => candidate.Number == number) is not { } annotation) return ("not_found", null);
+        BrowserElementPlace? place = null;
+        if (session.Active is { View: { } view, Dialog: null, Loading: false, Closed: false } front && BrowserAnnotation.SamePage(front.Address, annotation.Address))
+        {
+            using var answer = BrowserAnnotationScript.Read(await EvaluateAsync(view, BrowserAnnotationScript.Locate(annotation.Element.Selector)));
+            if (answer is not null && answer.RootElement.TryGetProperty("found", out var found) && found.ValueKind == JsonValueKind.True) place = BrowserElementPlace.Read(answer.RootElement);
+        }
+
+        session.Opened = new BrowserOpenedAnnotation(number, place, ++_openings);
+        return ("ok", annotation);
+    });
+
+    /// <summary>The picture of the whole viewport taken when the element that waits for its text was picked.</summary>
+    /// <param name="sessionId">The session.</param>
+    /// <returns>The picture, or null when there is none.</returns>
+    internal async Task<BrowserCapture?> PickStillAsync(string sessionId)
+    {
+        if (!_views.IsSupported || !IsIdentifier(sessionId)) return null;
+        try
+        {
+            return await _views.RunAsync(async () => _closed ? null : (await SessionAsync(sessionId)).Pending?.Still).ConfigureAwait(false);
+        }
+        catch (ObjectDisposedException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>The picture of an annotation, or of the element that waits for its text.</summary>
     /// <param name="sessionId">The session.</param>
     /// <param name="number">The number of the annotation; 0 for the element that was picked.</param>
@@ -240,8 +290,8 @@ internal sealed partial class DesktopBrowsers
 
     /// <summary>
     /// One round of the clock: a page in pick mode is asked whether an element was picked, the marks of the page
-    /// in front of each shown session are drawn again, and a page that was loading goes to the element it was
-    /// opened for. It is called on the thread of the window.
+    /// in front of each shown session are drawn again and asked whether the badge of one was clicked, and a page
+    /// that was loading goes to the element it was opened for. It is called on the thread of the window.
     /// </summary>
     internal async Task TickAsync()
     {
@@ -263,6 +313,7 @@ internal sealed partial class DesktopBrowsers
                 }
 
                 changed |= await MarkAsync(session);
+                changed |= await OpenedAsync(session);
                 if (changed) PublishAnnotations(session);
             }
         }
@@ -346,10 +397,10 @@ internal sealed partial class DesktopBrowsers
             [.. session.Annotations.OrderBy(static annotation => annotation.IsOpen ? 0 : 1).ThenBy(static annotation => annotation.Number).Select(annotation => new BrowserAnnotationState(annotation,
                 annotation.IsOpen && front is not null && session.Marked is { } marked && marked.PageId == front.Id && BrowserAnnotation.SamePage(marked.Address, annotation.Address)
                     ? marked.Found.Contains(annotation.Number) : null))],
-            session.Pages.FirstOrDefault(static page => page.Picking)?.Id, session.Pending);
+            session.Pages.FirstOrDefault(static page => page.Picking)?.Id, session.Pending, session.Opened);
         if (!_sessions.ContainsKey(session.Id)) return info;
         if (_publishedAnnotations.TryGetValue(session.Id, out var before) && before.PickingPageId == info.PickingPageId && ReferenceEquals(before.Pending, info.Pending)
-            && before.Annotations.SequenceEqual(info.Annotations)) return before;
+            && ReferenceEquals(before.Opened, info.Opened) && before.Annotations.SequenceEqual(info.Annotations)) return before;
         _publishedAnnotations[session.Id] = info;
         Tell(new BrowserChange(null, info));
         return info;
@@ -368,7 +419,8 @@ internal sealed partial class DesktopBrowsers
             case "picked" when answer!.RootElement.TryGetProperty("element", out var reported) && BrowserElementRecord.Read(reported, out _, out _) is { } element:
                 page.Picking = false;
                 // The address and the title are the ones the host knows: what the page says of itself is not taken.
-                session.Pending = new BrowserPendingPick(page.Id, page.Address, page.Title, element, await PictureAsync(view, element));
+                var (still, image) = await PicturesAsync(view, element);
+                session.Pending = new BrowserPendingPick(page.Id, page.Address, page.Title, element, image, still);
                 return true;
             case "off" or null:
                 // Another document was loaded, which knows of no pick mode: the mode goes on in it.
@@ -381,22 +433,26 @@ internal sealed partial class DesktopBrowsers
         }
     }
 
-    // A picture of an element with some margin, as far as the viewport shows it.
-    private static async Task<BrowserCapture?> PictureAsync(IBrowserView view, BrowserElementRecord element)
+    // A picture of the whole viewport, and the picture of an element cut out of it with some margin, as far as
+    // the viewport shows it. A part of the view is not captured by itself: on WebView2 that makes the page flicker.
+    private static async Task<(BrowserCapture? Still, BrowserCapture? Element)> PicturesAsync(IBrowserView view, BrowserElementRecord element)
     {
-        int left = Math.Max(element.X - PictureMargin, 0), top = Math.Max(element.Y - PictureMargin, 0);
-        int right = Math.Min(element.X + element.Width + PictureMargin, element.ViewportWidth), bottom = Math.Min(element.Y + element.Height + PictureMargin, element.ViewportHeight);
-        if (right - left < 2 || bottom - top < 2) return null;
-        using var timeout = new CancellationTokenSource(ScriptTimeout);
-        try
+        BrowserCapture? still;
+        using (var timeout = new CancellationTokenSource(ScriptTimeout))
         {
-            var capture = await view.CaptureRegionAsync(new BrowserBounds(left, top, right - left, bottom - top), timeout.Token);
-            return capture is { Data.Length: > 0 and <= BrowserAnnotation.MaximumImageBytes } ? capture : null;
+            try
+            {
+                still = await view.CaptureAsync(timeout.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return (null, null);
+            }
         }
-        catch (OperationCanceledException)
-        {
-            return null;
-        }
+
+        if (still is not { Data.Length: > 0 }) return (null, null);
+        var cut = await Task.Run(() => BrowserElementPicture.Cut(still, element.Place, PictureMargin));
+        return (still, cut is { Data.Length: > 0 and <= BrowserAnnotation.MaximumImageBytes } ? cut : null);
     }
 
     // Draws the marks of the open annotations of the page in front of a shown session. Returns whether what is
@@ -423,6 +479,19 @@ internal sealed partial class DesktopBrowsers
         var changed = !same || !session.Marked!.Found.SetEquals(found);
         session.Marked = wanted.Length == 0 ? null : new Marks(front.Id, front.Address, key, found);
         return changed;
+    }
+
+    // Asks the page in front of a shown session whether the badge of a mark was clicked, while it shows marks.
+    // Returns whether an annotation was opened.
+    private async Task<bool> OpenedAsync(Session session)
+    {
+        if (session.Placement is null || session.Marked is not { Found.Count: > 0 } marked
+            || session.Active is not { View: { } view, Dialog: null, Loading: false, Closed: false } front || marked.PageId != front.Id) return false;
+        using var answer = BrowserAnnotationScript.Read(await EvaluateAsync(view, BrowserAnnotationScript.Opened));
+        if (answer is null || !ReferenceEquals(session.Active, front) || !answer.RootElement.TryGetProperty("number", out var value)
+            || value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out var number) || !marked.Found.Contains(number)) return false;
+        session.Opened = new BrowserOpenedAnnotation(number, BrowserElementPlace.Read(answer.RootElement), ++_openings);
+        return true;
     }
 
     // Scrolls a page to the element it was asked to show, once its document is the one of the annotation.

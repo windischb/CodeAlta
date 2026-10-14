@@ -1,11 +1,14 @@
 // The page's link to the browsers of the sessions: the pages each session has, and where the window shows them.
-import type { browser, BrowserAnnotationsItem, BrowserAnnotationsReply, BrowserReply, BrowserSessionItem } from "#neoastra";
+import type { browser, BrowserAnnotationsItem, BrowserAnnotationsReply, BrowserOpenedItem, BrowserReply, BrowserSessionItem } from "#neoastra";
 import { sameBounds, type BrowserBounds } from "./browserPlacement";
 
 export type BrowserApi = Pick<typeof browser, "watch" | "state" | "open" | "close" | "select" | "move" | "navigate" | "command" | "answerDialog" | "place" | "release" | "capture"
   | "annotations" | "pick" | "saveAnnotation" | "discardPick" | "changeAnnotation" | "annotationImage" | "annotationPrompt">;
-/** What an annotation can be asked: to be resolved, opened again or removed, or its element to be shown. */
-export type AnnotationAction = "resolve" | "reopen" | "delete" | "reveal";
+/**
+ * What an annotation can be asked: to be resolved, opened again or removed, its element to be shown, or to be
+ * opened at its element, which the host tells with the annotations of the session.
+ */
+export type AnnotationAction = "resolve" | "reopen" | "delete" | "reveal" | "open";
 /** What a page can be asked to do. */
 export type BrowserCommand = "back" | "forward" | "reload" | "stop" | "devtools" | "focus";
 /** A picture of a page: a `data:` address and its size in pixels. */
@@ -47,6 +50,9 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
   const annotations = new Map<string, BrowserAnnotationsItem>();
   // The pictures of annotations that were read, by session and number: an annotation keeps its picture.
   const pictures = new Map<string, string>();
+  // The last opening of an annotation that was taken, by session. What the host had opened before the page first
+  // heard of a session is not opened again.
+  const openings = new Map<string, number>();
   const listeners = new Set<() => void>();
   // The sessions whose browser the page shows, and those the host was asked about since it is listened to.
   const asked = new Set<string>();
@@ -70,6 +76,7 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
   function applyAnnotations(next: BrowserAnnotationsItem | null | undefined) {
     if (!next) return;
     const id = key(next.sessionId);
+    if (!openings.has(id)) openings.set(id, next.opened?.sequence ?? 0);
     // A session without annotations and without a pick has nothing to tell of.
     if (next.annotations.length === 0 && !next.pickingPageId && !next.pending && !annotations.has(id)) return;
     if (JSON.stringify(annotations.get(id)) === JSON.stringify(next)) return;
@@ -163,6 +170,7 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
       ensured.clear();
       told.clear();
       pictures.clear();
+      openings.clear();
       async function watch() {
         try {
           for await (const event of await api.watch({ expectedEpoch: hostEpoch }, { signal: abort.signal })) {
@@ -244,6 +252,22 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
         }
         return reply.image;
       } catch { return null; }
+    },
+    /** The picture of the whole page taken when the element that waits for its text was picked, as a `data:` address; null when there is none. */
+    async pickStill(sessionId: string): Promise<string | null> {
+      const host = epoch;
+      if (!host) return null;
+      try {
+        const reply = await api.annotationImage({ expectedEpoch: host, sessionId, number: 0, action: "still" }, { timeoutMilliseconds: 8000 });
+        return reply.status === "ok" && reply.image && epoch === host ? reply.image : null;
+      } catch { return null; }
+    },
+    /** The annotation the user opened last in a session, once: null when it was taken already or there is none. */
+    takeOpened(sessionId: string): BrowserOpenedItem | null {
+      const id = key(sessionId), opened = annotations.get(id)?.opened ?? null;
+      if (!opened || opened.sequence <= (openings.get(id) ?? 0)) return null;
+      openings.set(id, opened.sequence);
+      return opened;
     },
     /** The open annotations of a session as a prompt, and the numbers of those whose picture goes with it. */
     async annotationPrompt(sessionId: string): Promise<Readonly<{ status: string; text: string | null; pictures: readonly number[] }>> {

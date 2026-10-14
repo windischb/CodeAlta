@@ -461,6 +461,7 @@ internal sealed partial class DesktopBrowsers : IAsyncDisposable
         // The pictures of annotations that were read or made in this run, by the identifier of their annotation.
         public Dictionary<string, BrowserCapture?> Pictures { get; } = new(StringComparer.Ordinal);
         public Marks? Marked { get; set; }
+        public BrowserOpenedAnnotation? Opened { get; set; }
     }
 
     private sealed class Page(string id, Session session)

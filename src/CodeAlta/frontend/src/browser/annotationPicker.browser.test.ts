@@ -18,6 +18,8 @@ const document = `<!doctype html><html><head><meta charset="utf-8"><title>Shop</
 <ul class="items"><li>First</li><li>Second</li><li><a href="#third" aria-label="Third item">Third</a></li></ul>
 <div id="twin">a</div><div id="twin">b</div>
 <input name="email" type="email" placeholder="you@example.com"><button id="off" disabled>Disabled</button>
+<div id="box" style="width: 200px; height: 80px; overflow: auto"><div style="height: 40px"></div><p id="inner" style="height: 20px; margin: 0">Inner</p><div style="height: 300px"></div></div>
+<div id="slot"><span id="swap">Old</span></div>
 <p id="long"></p><div class="tall"></div><footer><button class="secondary">Top</button></footer>
 <script>
   document.getElementById("long").textContent = "word ".repeat(400);
@@ -152,22 +154,74 @@ test("the picker of annotations names elements, keeps the click that picks from 
     await click("#headline");
     assert.ok((await seen()).includes("click"));
 
-    // The marks: a numbered badge at each element that is found, and the numbers that were.
+    // The marks: a frame over each element that is found and a numbered badge at its corner, and the numbers that were.
     const marked = await ask("mark([{ number: 1, selector: '#pay' }, { number: 7, selector: '#gone' }, { number: 3, selector: 'html > body > ul > li:nth-of-type(2)' }, { number: 4, selector: '][' }])");
     assert.deepEqual(marked.found, [1, 3]);
     assert.deepEqual(await evaluate(`[...${layer}.querySelectorAll('.mark')].map(mark => mark.textContent)`), ["1", "3"]);
-    const near = `(() => { const mark = ${layer}.querySelector('.mark').getBoundingClientRect(), of = document.querySelector('#pay').getBoundingClientRect(); return Math.abs(mark.left - (of.left - 9)) < 1.5 && Math.abs(mark.top - (of.top - 9)) < 1.5; })()`;
-    assert.ok(await evaluate(near));
+    const frame = (index: number) => `${layer}.querySelectorAll('.frame')[${index}]`;
+    // Where the mark of an element is, against where the element is; null when it is hidden.
+    const markOf = (index: number, selector: string) => evaluate(`(() => { const box = ${frame(index)}, mark = ${layer}.querySelectorAll('.mark')[${index}];
+      if (getComputedStyle(box).display === 'none') return getComputedStyle(mark).display === 'none' ? null : 'badge shown';
+      const at = box.getBoundingClientRect(), badge = mark.getBoundingClientRect(), of = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+      return { frame: [at.left - of.left, at.top - of.top, at.width - of.width, at.height - of.height].map(Math.round), badge: [badge.left - Math.max(0, at.left - 9), badge.top - Math.max(0, at.top - 9)].map(Math.round) }; })()`);
+    const onIt = { frame: [0, 0, 0, 0], badge: [0, 0] };
+    assert.deepEqual(await markOf(0, "#pay"), onIt);
+    assert.deepEqual(await evaluate(`(() => { const style = getComputedStyle(${frame(0)}); return [style.borderTopWidth, style.borderTopStyle, style.backgroundColor, style.pointerEvents]; })()`),
+      ["2px", "solid", "rgba(45, 114, 210, 0.3)", "none"]);
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('codealta-annotations')).pointerEvents`), "none");
-    // They follow the page when it scrolls, and are replaced by the next list.
-    await evaluate("window.scrollTo(0, 60); new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
-    assert.ok(await evaluate(near));
-    assert.deepEqual((await ask("mark([])")).found, []);
-    assert.equal(await evaluate(`${layer}.querySelectorAll('.mark').length`), 0);
+    const frames = () => new Promise(resolve => setTimeout(resolve, 80));
+    // They follow the page when it scrolls, at the next frame, and hide when their element is out of sight.
+    await evaluate("window.scrollTo(0, 60)");
+    await frames();
+    assert.deepEqual(await markOf(0, "#pay"), onIt);
+    await evaluate("window.scrollTo(0, 900)");
+    await frames();
+    assert.equal(await markOf(0, "#pay"), null, "an element out of sight has no mark");
+    await evaluate("window.scrollTo(0, 0)");
+    // The same list keeps the marks it drew; a mark follows an element inside a container that scrolls, clipped
+    // by it, and is hidden once the container has scrolled it out of sight.
+    await evaluate(`Object.assign(${frame(0)}.dataset, { kept: "yes" }), 0`);
+    assert.deepEqual((await ask("mark([{ number: 1, selector: '#pay' }, { number: 5, selector: '#inner' }, { number: 6, selector: '#swap' }])")).found, [1, 5, 6]);
+    assert.equal(await evaluate(`${layer}.querySelectorAll('.frame').length`), 3);
+    assert.equal(await evaluate(`${frame(0)}.dataset.kept`), "yes");
+    await frames();
+    assert.deepEqual(await markOf(1, "#inner"), onIt);
+    await evaluate("document.querySelector('#box').scrollTop = 50");
+    await frames();
+    assert.deepEqual((await markOf(1, "#inner") as { frame: number[] }).frame, [0, 10, 0, -10], "clipped at the top of the container");
+    await evaluate("document.querySelector('#box').scrollTop = 200");
+    await frames();
+    assert.equal(await markOf(1, "#inner"), null);
+    // An element the page replaces is found again by its selector; one that is gone loses its mark.
+    await evaluate("document.querySelector('#slot').innerHTML = '<b>Before</b><span id=\"swap\">New and longer</span>'");
+    await frames();
+    assert.deepEqual(await markOf(2, "#swap"), onIt);
+    await evaluate("document.querySelector('#swap').remove()");
+    await frames();
+    assert.equal(await markOf(2, "#pay"), null);
 
-    // Going to an element scrolls it into view.
-    assert.deepEqual(await ask("reveal('footer button')"), { found: true });
+    // A click on a badge is not the page's: it is kept for the host, once, with where its element is.
+    assert.deepEqual(await ask("opened()"), { number: null });
+    await seen();
+    const badge = await evaluate(`(() => { const box = ${layer}.querySelectorAll('.mark')[0].getBoundingClientRect(); return { x: box.left + box.width / 2, y: box.top + box.height / 2 }; })()`) as { x: number; y: number };
+    await command("Input.dispatchMouseEvent", { type: "mousePressed", ...badge, button: "left", clickCount: 1 });
+    await command("Input.dispatchMouseEvent", { type: "mouseReleased", ...badge, button: "left", clickCount: 1 });
+    assert.deepEqual(await seen(), [], "the page sees nothing of a click on a badge");
+    const opened = await ask("opened()");
+    assert.equal(opened.number, 1);
+    assert.deepEqual(opened.rect, (await ask("describe('#pay')")).rect);
+    assert.deepEqual(opened.viewport, { width: 900, height: 600 });
+    assert.deepEqual(await ask("opened()"), { number: null });
+    assert.deepEqual((await ask("mark([])")).found, []);
+    assert.equal(await evaluate(`${layer}.querySelectorAll('.mark, .frame').length`), 0);
+
+    // Going to an element scrolls it into view, unless it is in sight, and says where it is then.
+    const shown = await ask("reveal('#pay', false)");
+    assert.deepEqual([shown.found, shown.scrolled, shown.rect], [true, false, (await ask("describe('#pay')")).rect]);
+    const revealed = await ask("reveal('footer button')");
+    assert.deepEqual([revealed.found, revealed.scrolled, revealed.viewport], [true, true, { width: 900, height: 600 }]);
     assert.ok(await evaluate("window.scrollY > 500 && document.querySelector('footer button').getBoundingClientRect().top < window.innerHeight"));
+    assert.equal(revealed.rect.y, await evaluate("Math.round(document.querySelector('footer button').getBoundingClientRect().top)"));
     assert.deepEqual(await ask("reveal('#gone')"), { found: false });
   } finally {
     socket?.close(); browser?.kill();

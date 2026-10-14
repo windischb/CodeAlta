@@ -78,12 +78,6 @@
 .browser-annotations-count { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .browser-annotations-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .browser-annotations-empty { margin: 0; padding: 14px 12px; color: var(--muted); line-height: 1.5; }
-.browser-annotation-new { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); background: var(--accent-soft); }
-.browser-annotation-new > textarea { min-height: 44px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--text); background: var(--bg); font: inherit; resize: vertical; }
-.browser-annotation-new > textarea:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); outline-offset: 0; }
-.browser-annotation-picked { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
-.browser-annotation-picked > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.browser-annotation-picked code { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .browser-annotation-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .browser-annotation-list { margin: 0; padding: 0; list-style: none; }
 .browser-annotation { display: flex; align-items: flex-start; gap: 8px; padding: 8px 6px 8px 12px; border-bottom: 1px solid var(--line); }
@@ -91,14 +85,27 @@
 .browser-annotation-number { flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; color: #fff; background: var(--accent); font-size: 11px; font-weight: 600; line-height: 18px; text-align: center; }
 .browser-annotation[data-status="resolved"] .browser-annotation-number { background: var(--muted); }
 .browser-annotation-body { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
-.browser-annotation-text { margin: 0; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+/* The text of an annotation opens it at its element. */
+.browser-annotation-text { margin: 0; padding: 0; border: 0; border-radius: 3px; color: inherit; background: none; font: inherit; line-height: 1.45; text-align: left; overflow-wrap: anywhere; white-space: pre-wrap; cursor: pointer; }
+.browser-annotation-text:hover { color: var(--accent); }
+.browser-annotation-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .browser-annotation-element, .browser-annotation-page { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .browser-annotation-element { font-family: var(--mono, ui-monospace, monospace); }
 .browser-annotation-missing { color: var(--text); font-size: 11.5px; font-weight: 600; }
 .browser-annotation-resolved { color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
 .browser-annotation-picture { display: block; align-self: flex-start; width: auto; height: auto; max-width: min(100%, 260px); max-height: 120px; margin-top: 3px; border: 1px solid var(--line); border-radius: 4px; object-fit: contain; }
-.browser-annotation-picked > .browser-annotation-picture { flex: none; max-width: 40%; margin-top: 0; }
 .browser-annotation-actions { display: flex; flex: none; }
+
+/* The popup of an annotation at its element, over a still picture of the page, whose view is hidden meanwhile. */
+.browser-view[data-popup="true"] .browser-still { object-fit: fill; }
+.browser-popup-target { position: absolute; box-sizing: border-box; border: 2px solid var(--accent); border-radius: 2px; background: color-mix(in srgb, var(--accent) 30%, transparent); pointer-events: none; }
+.browser-popup { position: absolute; z-index: 1; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; width: min(340px, calc(100% - 16px)); max-height: calc(100% - 16px); padding: 10px 12px;
+  overflow: auto; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--text); background: var(--panel); box-shadow: 0 8px 24px color-mix(in srgb, #000 22%, transparent); font-size: 12.5px; }
+.browser-popup:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.browser-popup-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.browser-popup-text { max-height: 40vh; margin: 0; overflow: auto; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+.browser-popup > textarea { min-height: 56px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--text); background: var(--bg); font: inherit; resize: vertical; }
+.browser-popup > textarea:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); outline-offset: 0; }
 
 /* A session without a page: the address field in the middle. */
 .browser-empty { flex: 1 1 0; gap: 14px; }

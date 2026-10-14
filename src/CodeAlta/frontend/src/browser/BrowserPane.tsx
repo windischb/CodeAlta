@@ -1,11 +1,12 @@
 import { Button } from "@blueprintjs/core";
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
-import type { BrowserPageItem } from "#neoastra";
+import type { BrowserElementPlaceItem, BrowserPageItem } from "#neoastra";
 import { ActivitySpinner } from "../ActivitySpinner";
 import { AppIcon } from "../AppIcon";
 import type { MessageKey } from "../localization";
 import { useShellLanguage } from "../shellLanguage";
 import { addAnnotationsToPrompt } from "./annotationPrompt";
+import { AnnotationPopup } from "./AnnotationPopup";
 import { annotationNotice, BrowserAnnotations } from "./BrowserAnnotations";
 import { BrowserDialog } from "./BrowserDialog";
 import type { BrowserHub, BrowserStill } from "./browserHub";
@@ -16,6 +17,11 @@ import type { NativeViewOcclusion } from "./nativeViewOcclusion";
 export const stillMilliseconds = 1000;
 /** How long a page that finished loading is given to draw itself before its picture is taken. */
 export const settledMilliseconds = 300;
+/** How long a page that was scrolled to the element of an annotation is given to draw itself before its picture is taken. */
+export const scrolledMilliseconds = 120;
+
+/** The popup of an annotation: for the element that was picked, or for an annotation that was opened. */
+type Popup = Readonly<{ kind: "pick"; key: string } | { kind: "open"; number: number; sequence: number; place: BrowserElementPlaceItem | null }>;
 
 /** What a reply that is not `ok` says, in words; nothing for a reply that needs none. */
 export function browserNotice(status: string): MessageKey | null {
@@ -39,7 +45,8 @@ export const shownAddress = (page: BrowserPageItem | null | undefined) => !page 
  * only while the pane of the session is the one the window shows.
  *
  * A page that waits in a JavaScript dialog shows nothing by itself: the placeholder shows the dialog, and the
- * view is hidden meanwhile, since it would cover it.
+ * view is hidden meanwhile, since it would cover it. So it is for the popup of an annotation, drawn at its element
+ * over a still picture of the page: the picture the host took at the pick, or one taken before the view is hidden.
  */
 export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActivate }: {
   hub: BrowserHub; occlusion: NativeViewOcclusion; sessionId: string; shown: boolean;
@@ -52,12 +59,20 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
   const front = pages.find(page => page.id === session?.activePageId) ?? null;
   const frontId = front?.id ?? null;
   const annotations = useSyncExternalStore(hub.subscribe, () => hub.annotations(sessionId));
-  // Whether the list of annotations is shown under the page. An element that waits for its text shows it too.
+  // Whether the list of annotations is shown under the page.
   const [listOpen, setListOpen] = useState(false);
   const picking = !!frontId && annotations?.pickingPageId === frontId;
-  // An element that was picked opens the list, which stays open with what is saved of it.
-  const picked = !!annotations?.pending;
-  useEffect(() => { if (picked) setListOpen(true); }, [picked]);
+  const pending = annotations?.pending ?? null;
+  // The popup of an annotation, its still picture, and whether the view is hidden for it: at once for a pick,
+  // whose picture the host took; for an annotation that is opened, once its picture is taken.
+  const [popup, setPopup] = useState<Popup | null>(null);
+  const [popupStill, setPopupStill] = useState<string | null>(null);
+  const [popupHides, setPopupHides] = useState(false);
+  const popupShown = !!popup && popupHides;
+  const popupNow = useRef(popup);
+  popupNow.current = popup;
+  const pendingNow = useRef(pending);
+  pendingNow.current = pending;
   const [draft, setDraft] = useState<Readonly<{ page: string | null; text: string }> | null>(null);
   const [notice, setNotice] = useState<MessageKey | null>(null);
   // Whether the view is hidden because something of the window is drawn over its place.
@@ -73,6 +88,8 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
   const asking = !!front?.dialog;
   const dialogShown = useRef(asking);
   dialogShown.current = asking;
+  const popupHiding = useRef(popupShown);
+  popupHiding.current = popupShown;
   // The page whose dialog was answered here: it takes the keyboard back once its view is shown again.
   const answered = useRef<string | null>(null);
   const pane = useRef<HTMLElement>(null);
@@ -82,7 +99,49 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
   const lastStill = useRef(Number.NEGATIVE_INFINITY);
 
   useEffect(() => { hub.ensure(sessionId); }, [hub, sessionId]);
-  useEffect(() => { setDraft(null); setNotice(null); setStill(null); setListOpen(false); }, [sessionId]);
+  useEffect(() => { setDraft(null); setNotice(null); setStill(null); setListOpen(false); setPopup(null); setPopupHides(false); setPopupStill(null); }, [sessionId]);
+
+  const closePopup = () => { setPopup(null); setPopupHides(false); setPopupStill(null); };
+  // An element that was picked opens the popup over the picture of the page the host took at the pick, and the
+  // popup goes with it once it is saved or dropped.
+  const pickKey = pending ? `${pending.pageId} ${pending.element.selector} ${pending.place.x},${pending.place.y}` : "";
+  const pickStill = !!pending?.hasStill;
+  useEffect(() => {
+    if (!pickKey) {
+      if (popupNow.current?.kind === "pick") closePopup();
+      return;
+    }
+    let current = true;
+    setPopup({ kind: "pick", key: pickKey });
+    setPopupHides(true);
+    setPopupStill(null);
+    if (pickStill) void hub.pickStill(sessionId).then(image => { if (current) setPopupStill(image); });
+    return () => { current = false; };
+  }, [hub, sessionId, pickKey, pickStill]);
+  // An annotation that was opened, from the badge of its mark or from the list, opens the popup once a picture of
+  // the page is taken, while its view is still shown: the page scrolled to it a moment ago.
+  const openedSequence = annotations?.opened?.sequence ?? 0;
+  useEffect(() => {
+    const opened = hub.takeOpened(sessionId);
+    if (!opened || pendingNow.current) return;
+    setPopup({ kind: "open", number: opened.number, sequence: opened.sequence, place: opened.place });
+    setPopupStill(null);
+    const page = frontPage.current;
+    if (!page || !visible.current) { setPopupHides(true); return; }
+    setPopupHides(false);
+    const still = (image: string | null) => {
+      const now = popupNow.current;
+      if (now?.kind !== "open" || now.sequence !== opened.sequence) return;
+      setPopupStill(image);
+      setPopupHides(true);
+    };
+    setTimeout(() => void hub.capture(sessionId, page).then(picture => still(picture?.image ?? null)), scrolledMilliseconds);
+  }, [hub, sessionId, openedSequence]);
+  // Another page in front, or an annotation that is gone, closes the popup of an annotation.
+  const openedNumber = popup?.kind === "open" ? popup.number : null;
+  const openedAnnotation = openedNumber === null ? null : annotations?.annotations.find(item => item.number === openedNumber) ?? null;
+  useEffect(() => { if (popupNow.current?.kind === "open") closePopup(); }, [frontId]);
+  useEffect(() => { if (openedNumber !== null && annotations && !openedAnnotation) closePopup(); }, [openedNumber, annotations, openedAnnotation]);
 
   // Where the page in front is shown. The placeholder moves without changing its size (another splitter, the
   // Explorer), and an overlay moves without the document changing, so both are looked at once for each frame
@@ -95,7 +154,7 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
       const element = placeholder.current;
       // The toasts of the window stay beside this part while it has a page, shown or hidden for a moment.
       occlusion.reserve(reservation, element && pane.current ? pane.current.getBoundingClientRect() : null);
-      const box = element && frontPage.current && !dialogShown.current ? element.getBoundingClientRect() : null;
+      const box = element && frontPage.current && !dialogShown.current && !popupHiding.current ? element.getBoundingClientRect() : null;
       const hidden = !!box && occlusion.occludes(box, element);
       const bounds = box && !hidden ? deviceBounds(box, window.devicePixelRatio) : null;
       visible.current = !!bounds;
@@ -269,11 +328,21 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
         {notice && <p className="browser-notice" role="status">{t(notice)}</p>}
         {picking && <p className="browser-notice browser-picking" role="status">{t("Click an element of the page to annotate it. Escape ends.")}</p>}
         {front
-          ? <div className="browser-view" ref={placeholder} data-covered={covered} data-dialog={asking}>
+          ? <div className="browser-view" ref={placeholder} data-covered={covered} data-dialog={asking} data-popup={!asking && popupShown}>
             {/* Drawn only while the view is hidden: the view itself covers this place otherwise. */}
             {front.dialog && <BrowserDialog key={`${front.id} ${front.dialog.kind} ${front.dialog.message}`} dialog={front.dialog} address={front.address} pane={pane.current}
               onAnswer={(accept, text) => answerDialog(front.id, accept, text)} />}
-            {!front.dialog && covered && (still?.page === front.id
+            {!front.dialog && popup && popupShown && <>
+              {popupStill
+                ? <img className="browser-still" src={popupStill} alt="" aria-hidden />
+                : <div className="browser-covered"><strong>{title(front)}</strong><span>{shownAddress(front)}</span></div>}
+              {popup.kind === "pick" && pending
+                ? <AnnotationPopup key={popup.key} hub={hub} sessionId={sessionId} subject={{ kind: "pick", element: pending.element }} place={pending.place} onNotice={annotationSaid} onClose={closePopup} />
+                : popup.kind === "open" && openedAnnotation
+                  ? <AnnotationPopup key={popup.sequence} hub={hub} sessionId={sessionId} subject={{ kind: "open", annotation: openedAnnotation }} place={popup.place} onNotice={annotationSaid} onClose={closePopup} />
+                  : null}
+            </>}
+            {!front.dialog && !popupShown && covered && (still?.page === front.id
               ? <img className="browser-still" src={still.image} alt="" aria-hidden />
               : <div className="browser-covered">
                 <strong>{title(front)}</strong>
@@ -286,8 +355,8 @@ export function BrowserPane({ hub, occlusion, sessionId, shown, onClose, onActiv
             {field("browser-address browser-address-first")}
             <p>{t("This session has no page yet. Type an address and press Enter to open one.")}</p>
           </div>}
-        {(listOpen || picked) && <BrowserAnnotations hub={hub} sessionId={sessionId} annotations={annotations} onNotice={annotationSaid}
-          onAddToPrompt={() => void addToPrompt()} onClose={() => { setListOpen(false); if (annotations?.pending) void hub.discardPick(sessionId); }} />}
+        {listOpen && <BrowserAnnotations hub={hub} sessionId={sessionId} annotations={annotations} onNotice={annotationSaid}
+          onAddToPrompt={() => void addToPrompt()} onClose={() => setListOpen(false)} />}
       </>}
   </section>;
 }

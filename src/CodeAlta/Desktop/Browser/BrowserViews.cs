@@ -127,12 +127,6 @@ internal interface IBrowserView : IAsyncDisposable
     /// <returns>The result as JSON, or null when the script gave none or the page could not run it.</returns>
     ValueTask<string?> EvaluateAsync(string script, CancellationToken cancellationToken);
 
-    /// <summary>Takes a picture of a part of what the view shows. A view that is hidden is captured out of sight.</summary>
-    /// <param name="region">The part, in CSS pixels from the top-left corner of the viewport.</param>
-    /// <param name="cancellationToken">Cancels the wait.</param>
-    /// <returns>The picture, or null when the view could not be captured.</returns>
-    ValueTask<BrowserCapture?> CaptureRegionAsync(BrowserBounds region, CancellationToken cancellationToken);
-
     /// <summary>Answers the JavaScript dialog the page has open (<see cref="BrowserViewState.Dialog"/>).</summary>
     /// <param name="accept">Whether the dialog is accepted, or dismissed.</param>
     /// <param name="text">The text of a prompt that is accepted; null for its default text.</param>

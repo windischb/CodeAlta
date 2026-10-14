@@ -10,7 +10,7 @@ const told = (session: BrowserSessionItem): BrowserEvent => ({ kind: "session", 
 const annotation = (number: number, more: Partial<BrowserAnnotationItem> = {}): BrowserAnnotationItem => ({ number, text: `Change ${number}`, status: "open", resolvedBy: null, note: null,
   address: "https://example.com/a", title: "a", element: { selector: `#e${number}`, tag: "button", role: "button", name: "Pay", text: "Pay", html: "<button>" }, hasImage: true, found: true, ...more });
 const annotationsOf = (sessionId: string, annotations: BrowserAnnotationItem[], more: Partial<BrowserAnnotationsItem> = {}): BrowserAnnotationsItem =>
-  ({ sessionId, annotations, pickingPageId: null, pending: null, open: annotations.filter(item => item.status === "open").length, ...more });
+  ({ sessionId, annotations, pickingPageId: null, pending: null, open: annotations.filter(item => item.status === "open").length, opened: null, ...more });
 const annotated = (annotations: BrowserAnnotationsItem): BrowserEvent => ({ kind: "annotations", supported: true, session: null, annotations });
 const settle = async () => { for (let turn = 0; turn < 20; turn++) await Promise.resolve(); };
 
@@ -207,6 +207,19 @@ test("the annotations of a session are read with its pages, told as they change,
   assert.equal(await hub.annotationImage("s1", 2), null);
   assert.deepEqual((await hub.annotationPrompt("s1")), { status: "ok", text: "The annotations", pictures: [1] });
   take();
+  // The picture of the whole page taken at a pick, for the popup over it.
+  replies.image = "data:image/jpeg;base64,BB==";
+  assert.equal(await hub.pickStill("s1"), "data:image/jpeg;base64,BB==");
+  assert.deepEqual(take(), ['annotationImage {"expectedEpoch":"epoch","sessionId":"s1","number":0,"action":"still"}']);
+  // An annotation that is opened is taken once; one the host had opened before the page heard of its session is not.
+  assert.equal(hub.takeOpened("s1"), null);
+  watches[0].push(annotated(annotationsOf("s1", [annotation(1)], { opened: { number: 1, sequence: 4, place: null } })));
+  await settle();
+  assert.deepEqual(hub.takeOpened("s1"), { number: 1, sequence: 4, place: null });
+  assert.equal(hub.takeOpened("s1"), null);
+  watches[0].push(annotated(annotationsOf("s3", [annotation(1)], { opened: { number: 1, sequence: 3, place: null } })));
+  await settle();
+  assert.equal(hub.takeOpened("s3"), null);
 
   // A session whose tab is closed is forgotten with its annotations.
   const before = changes;

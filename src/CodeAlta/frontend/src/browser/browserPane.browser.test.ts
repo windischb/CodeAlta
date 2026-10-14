@@ -282,7 +282,7 @@ test("the browser of a session says where its page is, hides it behind what the 
 
     // Annotations. The toolbar turns pick mode on and off in the page in front, and says so while it is on.
     const annotations = (value: string) => `${f}.setAnnotations(${value})`;
-    const some = (list: string, more = "") => `{ sessionId: 'fixture', annotations: ${list}, pickingPageId: null, pending: null, open: ${list}.filter(item => item.status === 'open').length${more} }`;
+    const some = (list: string, more = "") => `{ sessionId: 'fixture', annotations: ${list}, pickingPageId: null, pending: null, opened: null, open: ${list}.filter(item => item.status === 'open').length${more} }`;
     const panel = "document.querySelector('.browser-annotations')";
     await calls();
     assert.equal(await evaluate(panel), null);
@@ -295,28 +295,56 @@ test("the browser of a session says where its page is, hides it behind what the 
     await placed("the page stays shown while an element is picked");
     await act(`${button("Stop annotating")}.click()`);
     assert.deepEqual(await asked(), ["pick fixture a false"]);
-    // An element was picked: the list opens under the page, which gets less room, with what the page reported and a field.
-    const tall = (await evaluate(`${view}.getBoundingClientRect().height`)) as number;
-    await act(`${state}.still = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=='`);
-    await act(annotations(some("[]", ", pending: { pageId: 'a', address: 'https://example.com/a', title: 'Page a', element: " + `${f}.element('button', 'Pay now')` + ", hasImage: true }")));
-    await until(`${panel} && ${view}.getBoundingClientRect().height < ${tall}`);
+    // An element was picked: the view is hidden, and its place shows the picture the host took at the pick, with the
+    // popup at the element, where the text is typed. The page reports the element in CSS pixels of its viewport,
+    // here twice as large as the place.
+    await act(annotations(some("[]")));
+    const gif = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
+    const sizeOfView = async () => await evaluate(`(() => { const box = ${view}.getBoundingClientRect(); return { width: box.width, height: box.height }; })()`) as { width: number; height: number };
+    const area = await sizeOfView();
+    const placeAt = (x: number, y: number, of = area) => `{ x: ${x * 2}, y: ${y * 2}, width: 240, height: 60, viewportWidth: ${of.width * 2}, viewportHeight: ${of.height * 2} }`;
+    const popup = "document.querySelector('.browser-popup')";
+    // Where something is drawn in the place of the page, in CSS pixels from its top-left corner.
+    const within = (element: string) => evaluate(`(() => { const box = ${view}.getBoundingClientRect(), of = ${element}.getBoundingClientRect();
+      return [of.left - box.left, of.top - box.top, of.width, of.height].map(Math.round); })()`) as Promise<number[]>;
+    await act(`${state}.pickStill = ${JSON.stringify(gif)}`);
+    await act(annotations(some("[]", `, pending: { pageId: 'a', address: 'https://example.com/a', title: 'Page a', element: ${f}.element('button', 'Pay now'), hasImage: true, hasStill: true, place: ${placeAt(100, 120)} }`)));
+    await hidden("the view is hidden while the popup is open");
+    await until(`${popup} !== null && ${view}.querySelector('.browser-still')?.getAttribute('src') === ${JSON.stringify(gif)}`);
+    assert.ok((await calls()).includes("pickStill fixture"));
+    assert.equal(await evaluate(panel), null, "the list stays closed");
+    assert.deepEqual(await within("document.querySelector('.browser-popup-target')"), [100, 120, 120, 30], "the element is framed where the page reported it");
+    const [left, top, width, height] = await within(popup);
+    assert.deepEqual([left, top], [100, 158], "the popup is under the element");
+    assert.ok(left + width <= area.width && top + height <= area.height, JSON.stringify([left, top, width, height, area]));
+    assert.equal(await evaluate(`${popup}.querySelector('.browser-annotation-element').textContent`), "<button> Pay now");
+    assert.ok(await evaluate(`document.activeElement === ${popup}.querySelector('textarea')`), "the text is typed here");
+    assert.equal(await evaluate(`[...${popup}.querySelectorAll('button')].find(item => item.textContent === 'Save annotation').disabled`), true, "an annotation needs a text");
+    await calls();
+    await act(`const field = ${popup}.querySelector('textarea'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, 'Make it green'); field.dispatchEvent(new Event('input', { bubbles: true }))`);
+    await act(`[...${popup}.querySelectorAll('button')].find(item => item.textContent === 'Save annotation').click()`);
+    assert.deepEqual(await asked(), ["saveAnnotation fixture Make it green"]);
+    // Ctrl+Enter saves too, and Escape forgets what was picked.
+    await act(`${popup}.querySelector('textarea').focus()`);
+    await command("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, modifiers: 2 });
+    await command("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, modifiers: 2 });
+    await key("Escape", 27);
+    assert.deepEqual(await asked(), ["saveAnnotation fixture Make it green", "discardPick fixture"]);
+    // Near the bottom of the place the popup goes above the element.
+    await act(annotations(some("[]", `, pending: { pageId: 'a', address: 'https://example.com/a', title: 'Page a', element: ${f}.element('button', 'Pay now'), hasImage: true, hasStill: true, place: ${placeAt(30, Math.round(area.height) - 40)} }`)));
+    await until(`${popup} !== null`);
+    const [, above, , tall] = await within(popup);
+    assert.ok(Math.abs(above + tall - (Math.round(area.height) - 48)) <= 1, JSON.stringify([above, tall, area]));
+    // Once the host holds no pick, the popup goes and the view comes back.
+    await act(annotations(some("[]")));
+    assert.equal(await evaluate(popup), null);
+    await placed("the view is shown again");
+    // The list: the open ones as the host orders them, what is not on the page said, a resolution with who and why.
+    const list = `[${f}.annotation(2, { text: 'Bigger title', hasImage: true }), ${f}.annotation(3, { found: false }), ${f}.annotation(1, { status: 'resolved', resolvedBy: 'agent', note: 'Done in app.css', found: null })]`;
+    await act(annotations(some(list)));
+    await act(`${button("Show or hide the annotations")}.click()`);
     await placed("the page above the annotations");
     assert.ok(await evaluate(`${panel}.getBoundingClientRect().top >= ${view}.getBoundingClientRect().bottom - 0.5`));
-    assert.deepEqual(await evaluate(`[${panel}.querySelector('.browser-annotation-picked .browser-annotation-element').textContent, ${panel}.querySelector('.browser-annotation-picked code').textContent]`), ["<button> Pay now", "#pay-now"]);
-    await until(`${panel}.querySelector('.browser-annotation-picked img') !== null`);
-    assert.ok(await evaluate(`document.activeElement === ${panel}.querySelector('textarea')`), "the text is typed here");
-    assert.equal(await evaluate(`[...${panel}.querySelectorAll('button')].find(item => item.textContent === 'Save annotation').disabled`), true, "an annotation needs a text");
-    await calls();
-    await act(`const field = ${panel}.querySelector('textarea'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(field, 'Make it green'); field.dispatchEvent(new Event('input', { bubbles: true }))`);
-    await act(`[...${panel}.querySelectorAll('button')].find(item => item.textContent === 'Save annotation').click()`);
-    assert.deepEqual(await asked(), ["saveAnnotation fixture Make it green"]);
-    // Escape in the field forgets what was picked.
-    await act(`${panel}.querySelector('textarea').focus()`);
-    await key("Escape", 27);
-    assert.deepEqual(await asked(), ["discardPick fixture"]);
-    // The list: the open ones as the host orders them, what is not on the page said, a resolution with who and why.
-    await act(annotations(some(`[${f}.annotation(2, { text: 'Bigger title', hasImage: true }), ${f}.annotation(3, { found: false }), ${f}.annotation(1, { status: 'resolved', resolvedBy: 'agent', note: 'Done in app.css', found: null })]`)));
-    assert.ok(await evaluate(`${panel} !== null && ${panel}.querySelector('form') === null`), "the list stays open with what was saved");
     assert.equal(await evaluate("document.querySelector('.browser-annotate .browser-count').textContent"), "2");
     assert.equal(await evaluate(`${button("Show or hide the annotations")}.getAttribute('aria-pressed')`), "true");
     assert.deepEqual(await evaluate(`[...${panel}.querySelectorAll('.browser-annotation')].map(item => [item.querySelector('.browser-annotation-number').textContent, item.querySelector('.browser-annotation-text').textContent, item.dataset.status,
@@ -329,6 +357,41 @@ test("the browser of a session says where its page is, hides it behind what the 
     const rowButton = (row: number, label: string) => `${panel}.querySelectorAll('.browser-annotation')[${row}].querySelector('button[aria-label="${label}"]')`;
     await act(`${rowButton(0, "Go to the element")}.click(); ${rowButton(0, "Resolve")}.click(); ${rowButton(2, "Reopen")}.click(); ${rowButton(1, "Delete")}.click()`);
     assert.deepEqual(await asked(), ["changeAnnotation fixture 2 reveal", "changeAnnotation fixture 2 resolve", "changeAnnotation fixture 1 reopen", "changeAnnotation fixture 3 delete"]);
+    // The text of an annotation opens it at its element: the host brings the element into sight and tells where it
+    // is; a picture of the page is taken while the view is shown, then the view is hidden under the popup.
+    await act(`${panel}.querySelectorAll('.browser-annotation-text')[0].click()`);
+    assert.deepEqual(await asked(), ["changeAnnotation fixture 2 open"]);
+    await act(`${state}.still = ${JSON.stringify(gif)}`);
+    await calls();
+    const shorter = await sizeOfView();
+    await act(annotations(some(list, `, opened: { number: 2, sequence: 1, place: ${placeAt(40, 60, shorter)} }`)));
+    await until(`${state}.calls.includes('capture fixture a')`);
+    await hidden("the view is hidden under the popup of an annotation");
+    await until(`${popup}?.dataset.kind === 'open' && ${view}.querySelector('.browser-still') !== null`);
+    assert.deepEqual(await within("document.querySelector('.browser-popup-target')"), [40, 60, 120, 30]);
+    assert.deepEqual((await within(popup)).slice(0, 2), [40, 98]);
+    assert.deepEqual(await evaluate(`[${popup}.getAttribute('aria-label'), ${popup}.querySelector('.browser-popup-text').textContent, [...${popup}.querySelectorAll('button')].map(item => item.textContent)]`),
+      ["Annotation 2", "Bigger title", ["Delete", "Resolve", "Close"]]);
+    await calls();
+    await act(`[...${popup}.querySelectorAll('button')].find(item => item.textContent === 'Resolve').click()`);
+    assert.deepEqual(await asked(), ["changeAnnotation fixture 2 resolve"]);
+    assert.equal(await evaluate(`${popup} !== null`), true, "the popup stays open with what changed");
+    // Escape closes it, and the view comes back; the same opening told again opens nothing.
+    await key("Escape", 27);
+    assert.equal(await evaluate(popup), null);
+    await placed("the view is shown again after the popup");
+    await act(annotations(some(list, `, opened: { number: 2, sequence: 1, place: ${placeAt(40, 60, shorter)} }`)));
+    assert.equal(await evaluate(popup), null);
+    // The badge of an element the page does not find: the popup is in the middle, and says so; Delete closes it.
+    await act(annotations(some(list, ", opened: { number: 3, sequence: 2, place: null }")));
+    await until(`${popup}?.dataset.kind === 'open'`);
+    assert.equal(await evaluate("document.querySelector('.browser-popup-target')"), null);
+    assert.equal(await evaluate(`${popup}.querySelector('.browser-annotation-missing').textContent`), "Not found on this page");
+    await calls();
+    await act(`[...${popup}.querySelectorAll('button')].find(item => item.textContent === 'Delete').click()`);
+    assert.deepEqual(await asked(), ["changeAnnotation fixture 3 delete"]);
+    assert.equal(await evaluate(popup), null);
+    await placed("the view is shown again after a deletion");
     // Add to prompt writes the annotations after what the composer holds, and hands their pictures over as a paste.
     await act(`window.pasted = []; window.drafts = [];
       window.addEventListener('codealta:plugin', event => { const request = event.detail; if (request.sessionId !== 'fixture') return; request.handled = true; request.result = true;

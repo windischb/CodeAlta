@@ -362,11 +362,6 @@ internal sealed class WebViewBrowserViews : IBrowserViews, IAsyncDisposable
         public ValueTask<BrowserCapture?> CaptureAsync(CancellationToken cancellationToken)
             => CaptureAsync(new NeoCaptureOptions { Format = NeoCaptureFormat.Jpeg, Quality = 80 }, cancellationToken);
 
-        public ValueTask<BrowserCapture?> CaptureRegionAsync(BrowserBounds region, CancellationToken cancellationToken)
-            => region.IsValid
-                ? CaptureAsync(new NeoCaptureOptions { Format = NeoCaptureFormat.Png, Region = new NeoRect(region.X, region.Y, region.Width, region.Height) }, cancellationToken)
-                : ValueTask.FromResult<BrowserCapture?>(null);
-
         private async ValueTask<BrowserCapture?> CaptureAsync(NeoCaptureOptions options, CancellationToken cancellationToken)
         {
             if (_disposed || !OperatingSystem.IsWindows()) return null;

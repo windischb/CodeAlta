@@ -205,7 +205,10 @@ internal sealed class BrowserService
         return Reply(await _browsers!.DiscardPickAsync(request.SessionId ?? string.Empty).ConfigureAwait(false));
     }
 
-    /// <summary>Resolves, reopens or deletes an annotation, or goes to its element in the browser of the session.</summary>
+    /// <summary>
+    /// Resolves, reopens or deletes an annotation, goes to its element in the browser of the session, or opens it
+    /// at its element: what is opened is told with the annotations of the session.
+    /// </summary>
     [NeoRpcMethod("changeAnnotation")]
     public async Task<BrowserAnnotationsReply> ChangeAnnotationAsync(BrowserAnnotationRequest request)
     {
@@ -218,17 +221,24 @@ internal sealed class BrowserService
             "reopen" => await _browsers!.ReopenAnnotationAsync(session, request.Number).ConfigureAwait(false),
             "delete" => await _browsers!.DeleteAnnotationAsync(session, request.Number).ConfigureAwait(false),
             "reveal" => await _browsers!.RevealAnnotationAsync(session, request.Number).ConfigureAwait(false),
+            "open" => await _browsers!.OpenAnnotationAsync(session, request.Number).ConfigureAwait(false),
             _ => new BrowserAnnotationResult("invalid"),
         });
     }
 
-    /// <summary>The picture of the element of an annotation, or with the number 0 of the element that was picked.</summary>
+    /// <summary>
+    /// The picture of the element of an annotation, or with the number 0 of the element that was picked; with the
+    /// number 0 and the action <c>still</c>, the picture of the whole page taken when it was picked.
+    /// </summary>
     [NeoRpcMethod("annotationImage")]
     public async Task<BrowserCaptureReply> AnnotationImageAsync(BrowserAnnotationRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (Refuse(request.ExpectedEpoch) is { } refused) return new(refused, null, 0, 0);
-        var capture = await _browsers!.AnnotationImageAsync(request.SessionId ?? string.Empty, request.Number).ConfigureAwait(false);
+        var session = request.SessionId ?? string.Empty;
+        var capture = request is { Number: 0, Action: "still" }
+            ? await _browsers!.PickStillAsync(session).ConfigureAwait(false)
+            : await _browsers!.AnnotationImageAsync(session, request.Number).ConfigureAwait(false);
         if (capture is null || capture.Data.Length > MaximumCaptureBytes) return new("unavailable_page", null, 0, 0);
         return new("ok", $"data:{capture.MediaType};base64,{Convert.ToBase64String(capture.Data.Span)}", capture.Width, capture.Height);
     }
@@ -279,8 +289,13 @@ internal sealed class BrowserService
             [.. annotations.Annotations.Select(static state => new BrowserAnnotationItem(state.Annotation.Number, state.Annotation.Text, state.Annotation.Status, state.Annotation.ResolvedBy,
                 state.Annotation.Note, state.Annotation.Address, state.Annotation.Title, Item(state.Annotation.Element), state.Annotation.Image is not null, state.Found))],
             annotations.PickingPageId,
-            annotations.Pending is { } pending ? new BrowserPendingItem(pending.PageId, pending.Address, pending.Title, Item(pending.Element), pending.Image is not null) : null,
-            annotations.Open);
+            annotations.Pending is { } pending
+                ? new BrowserPendingItem(pending.PageId, pending.Address, pending.Title, Item(pending.Element), pending.Image is not null, Item(pending.Element.Place), pending.Still is not null)
+                : null,
+            annotations.Open,
+            annotations.Opened is { } opened ? new BrowserOpenedItem(opened.Number, opened.Sequence, opened.Place is { } place ? Item(place) : null) : null);
+
+    private static BrowserElementPlaceItem Item(BrowserElementPlace place) => new(place.X, place.Y, place.Width, place.Height, place.ViewportWidth, place.ViewportHeight);
 
     private static BrowserElementItem Item(BrowserElementRecord element) => new(element.Selector, element.Tag, element.Role, element.Name, element.Text, element.Html);
 
@@ -359,7 +374,10 @@ internal sealed record BrowserAnnotationTextRequest(string? ExpectedEpoch, strin
 /// <param name="ExpectedEpoch">The host epoch the page read.</param>
 /// <param name="SessionId">The session.</param>
 /// <param name="Number">The number of the annotation; 0 names the element that was picked, for its picture.</param>
-/// <param name="Action"><c>resolve</c>, <c>reopen</c>, <c>delete</c> or <c>reveal</c>, with <c>changeAnnotation</c>.</param>
+/// <param name="Action">
+/// <c>resolve</c>, <c>reopen</c>, <c>delete</c>, <c>reveal</c> or <c>open</c>, with <c>changeAnnotation</c>; <c>still</c> with
+/// <c>annotationImage</c> and the number 0, for the picture of the whole page.
+/// </param>
 internal sealed record BrowserAnnotationRequest(string? ExpectedEpoch, string? SessionId, int Number, string? Action = null);
 
 /// <summary>An element of a page as the page reported it. Every text is text of the page.</summary>
@@ -390,7 +408,24 @@ internal sealed record BrowserAnnotationItem(int Number, string Text, string Sta
 /// <param name="Title">The title of that page.</param>
 /// <param name="Element">The element as the page reported it.</param>
 /// <param name="HasImage">Whether a picture of the element was taken.</param>
-internal sealed record BrowserPendingItem(string PageId, string Address, string Title, BrowserElementItem Element, bool HasImage);
+/// <param name="Place">Where the element was in the page when it was picked.</param>
+/// <param name="HasStill">Whether a picture of the whole page was taken then.</param>
+internal sealed record BrowserPendingItem(string PageId, string Address, string Title, BrowserElementItem Element, bool HasImage, BrowserElementPlaceItem Place, bool HasStill);
+
+/// <summary>Where an element is in its page, as the page reported it, in CSS pixels.</summary>
+/// <param name="X">The left edge of its rectangle in the viewport.</param>
+/// <param name="Y">The top edge of its rectangle.</param>
+/// <param name="Width">The width of its rectangle.</param>
+/// <param name="Height">The height of its rectangle.</param>
+/// <param name="ViewportWidth">The width of the viewport.</param>
+/// <param name="ViewportHeight">The height of the viewport.</param>
+internal sealed record BrowserElementPlaceItem(int X, int Y, int Width, int Height, int ViewportWidth, int ViewportHeight);
+
+/// <summary>An annotation the user opened, to be shown at its element.</summary>
+/// <param name="Number">The number of the annotation.</param>
+/// <param name="Sequence">What tells this opening from the ones before: it grows with each one.</param>
+/// <param name="Place">Where its element is in the page in front; null when that page does not show it.</param>
+internal sealed record BrowserOpenedItem(int Number, int Sequence, BrowserElementPlaceItem? Place);
 
 /// <summary>The annotations of a session.</summary>
 /// <param name="SessionId">The session.</param>
@@ -398,7 +433,8 @@ internal sealed record BrowserPendingItem(string PageId, string Address, string 
 /// <param name="PickingPageId">The page in which an element is being picked, or null.</param>
 /// <param name="Pending">The element that was picked and waits for its text, or null.</param>
 /// <param name="Open">How many annotations wait to be done.</param>
-internal sealed record BrowserAnnotationsItem(string SessionId, BrowserAnnotationItem[] Annotations, string? PickingPageId, BrowserPendingItem? Pending, int Open);
+/// <param name="Opened">The annotation the user opened last, or null.</param>
+internal sealed record BrowserAnnotationsItem(string SessionId, BrowserAnnotationItem[] Annotations, string? PickingPageId, BrowserPendingItem? Pending, int Open, BrowserOpenedItem? Opened);
 
 /// <summary>The outcome of a request about the annotations of a session.</summary>
 /// <param name="Status">

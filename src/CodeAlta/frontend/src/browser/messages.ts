@@ -38,6 +38,7 @@ export const browserMessages = {
   "Put the open annotations into the prompt of the session": ["Poner las anotaciones abiertas en el mensaje de la sesión", "Placer les annotations ouvertes dans le prompt de la session", "Offene Anmerkungen in den Prompt der Sitzung übernehmen", "未解決の注釈をセッションのプロンプトに入れる", "将未解决的批注放入会话的提示"],
   "What should change?": ["¿Qué debe cambiar?", "Que faut-il changer ?", "Was soll sich ändern?", "何を変更しますか？", "需要更改什么？"],
   "Save annotation": ["Guardar anotación", "Enregistrer l’annotation", "Anmerkung speichern", "注釈を保存", "保存批注"],
+  "Open at the element": ["Abrir en el elemento", "Ouvrir sur l’élément", "Am Element öffnen", "要素の位置で開く", "在元素处打开"],
   "Go to the element": ["Ir al elemento", "Aller à l’élément", "Zum Element gehen", "要素に移動", "转到元素"],
   "Resolve": ["Resolver", "Résoudre", "Erledigen", "解決済みにする", "标记为已解决"],
   "Resolved": ["Resuelta", "Résolue", "Erledigt", "解決済み", "已解决"],

@@ -28,6 +28,9 @@ internal sealed record BrowserElementRecord(string Selector, IReadOnlyList<strin
     /// <summary>The longest selector that is kept, in UTF-16 units.</summary>
     internal const int MaximumSelectorLength = 1000;
 
+    /// <summary>Gets where the element was when it was reported.</summary>
+    internal BrowserElementPlace Place => new(X, Y, Width, Height, ViewportWidth, ViewportHeight);
+
     private const int MaximumAncestors = 12, MaximumAncestorLength = 160, MaximumShortLength = 64, MaximumNameLength = 300, MaximumTextLength = 500, MaximumHtmlLength = 1000;
 
     /// <summary>
@@ -79,7 +82,10 @@ internal sealed record BrowserElementRecord(string Selector, IReadOnlyList<strin
         return builder.ToString().Trim();
     }
 
-    private static int Number(JsonElement owner, string property)
+    /// <summary>Reads a number the page wrote, rounded and bounded; 0 when there is none.</summary>
+    /// <param name="owner">The object that has it.</param>
+    /// <param name="property">Its name.</param>
+    internal static int Number(JsonElement owner, string property)
         => owner.ValueKind == JsonValueKind.Object && owner.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number) && double.IsFinite(number)
             ? (int)Math.Clamp(Math.Round(number), -1_000_000, 1_000_000)
             : 0;
@@ -357,6 +363,15 @@ internal static class BrowserAnnotationScript
 
     /// <summary>The script that scrolls to the element a selector finds.</summary>
     internal static string Reveal(string selector) => $"{Api} ? {Api}.reveal({JsonSerializer.Serialize(selector, BrowserStoreJsonContext.Default.String)}) : null";
+
+    /// <summary>
+    /// The script that brings the element a selector finds into sight without a ring, and says where it is then:
+    /// for the place of an annotation that is opened.
+    /// </summary>
+    internal static string Locate(string selector) => $"{Api} ? {Api}.reveal({JsonSerializer.Serialize(selector, BrowserStoreJsonContext.Default.String)}, false) : null";
+
+    /// <summary>The script that asks which badge of a mark was clicked since it was last asked.</summary>
+    internal static string Opened => $"{Api} ? {Api}.opened() : null";
 
     /// <summary>
     /// Reads what a function of the picker returned: the JSON text it wrote, which the view gives as a JSON

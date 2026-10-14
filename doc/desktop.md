@@ -3967,7 +3967,9 @@ in `Desktop/Browser/` (the pages and their views, the tools of the sessions and 
 The user points at an element of a page and writes what should change; the agent of the session reads these
 annotations. The sources are `Desktop/Browser/annotation-picker.js` (the script in the page),
 `BrowserAnnotations.cs` (the record, its text for a model, the store), `DesktopBrowsers.Annotations.cs` (pick
-mode, the marks, the state) and `frontend/src/browser/BrowserAnnotations.tsx` with `annotationPrompt.ts`.
+mode, the marks, the state), `BrowserElementPicture.cs` (the picture of an element) and
+`frontend/src/browser/BrowserAnnotations.tsx` (the list), `AnnotationPopup.tsx` with
+`annotationPopupPlacement.ts` (the popup) and `annotationPrompt.ts`.
 
 - **The picker, without a bridge.** `annotation-picker.js` is a plain script, embedded in the host
   (`CodeAlta.Desktop.Browser.annotation-picker.js`) and added to every document of a browser view at its start
@@ -3977,7 +3979,8 @@ mode, the marks, the state) and `frontend/src/browser/BrowserAnnotations.tsx` wi
   page gets none of the pointer events of that click, since the script listens first. Escape in the page ends
   the mode, and so does the button of the toolbar. The view still has no bridge: while a page is in pick mode
   the host asks it every 300 ms (`poll()`), and a document that was loaded meanwhile is put in pick mode again.
-  What the script draws (the outline, the marks) is in the shadow tree of one element that takes no pointer.
+  What the script draws (the outline, the marks) is in the shadow tree of one element that takes no pointer;
+  only the badges of the marks take it.
 - **What the page reports.** A CSS selector (an `id`, or `data-testid`, `data-test-id`, `data-test`,
   `data-cy`, `data-qa`, `name` or `aria-label` when exactly one element has it; otherwise the path from the
   nearest such ancestor by `nth-of-type`), up to twelve ancestors (tag, id, four classes), the tag, the role,
@@ -3985,23 +3988,53 @@ mode, the marks, the state) and `frontend/src/browser/BrowserAnnotations.tsx` wi
   size of the viewport. Every text is bounded in the script and again by the host
   (`BrowserElementRecord.Read`: one line, no control characters), since a page can replace the script. The
   address and the title of an annotation are the ones the host knows of the page, not what the page says.
-- **The text is typed in CodeAlta.** After a pick the host takes a PNG of the element with a margin of 16
-  pixels (`CaptureAsync` with a region of the viewport, as far as the viewport shows it; a view that is hidden
-  is captured out of sight) and holds the element as the pick of the session. The list opens under the page
-  with the summary, the picture and a field; **Save annotation** (or Ctrl+Enter) sends the text alone
-  (`browser.saveAnnotation`), and the host makes the annotation of the element it holds. A page can lie about
-  an element; it can neither make an annotation nor write its text. Escape or **Cancel** drops the pick.
+- **The text is typed in CodeAlta, in a popup at the element.** After a pick the host captures the whole
+  viewport once (the plain capture of the view, as for the still pictures; a view that is hidden is captured out
+  of sight), cuts the picture of the element out of it with a margin of 16 CSS pixels, scaled by the ratio of
+  the picture to the viewport and kept inside it, as a PNG (`BrowserElementPicture`, SkiaSharp), and holds the
+  element, the picture and the capture as the pick of the session. A part of a view is never captured by itself:
+  on WebView2 that capture goes through `Page.captureScreenshot` of the DevTools protocol with a clip, and
+  Chromium draws the clip in the view while it captures, so the page flickered and the element was seen alone
+  for a moment. The native view lies above everything the window draws, so the view is then hidden and its
+  place shows that capture (`annotationImage` with the number 0 and the action `still`), with a frame over the
+  element where the page reported it and the popup under it, or above it without room, always inside the place
+  (`annotationPopupPlacement.ts`). The popup has the element in a few words and a field, which has the
+  keyboard; **Save annotation** (or Ctrl+Enter) sends the text alone (`browser.saveAnnotation`), and the host
+  makes the annotation of the element it holds. A page can lie about an element; it can neither make an
+  annotation nor write its text. Escape or **Cancel** drops the pick. Once the host holds no pick the popup
+  goes and the view comes back. The picture under the popup does not scroll: the wheel over it does nothing.
+- **Opening an annotation.** The text of an annotation in the list, or the badge of its mark in the page, opens
+  it in the same popup at its element (`changeAnnotation` with `open`). From the list, when the page in front
+  shows its address and finds its element, the host brings the element into sight (`reveal(selector, false)`,
+  which scrolls only an element that is not wholly in sight) and reads where it is. A click on a badge is not
+  the page's: the script keeps it, and the host asks for it in each round of its clock while marks are shown
+  (`opened()`) and takes only the number of a mark it drew. The host tells the opening with the annotations of
+  the session (`opened`, with a sequence that grows, so that the window opens each one once,
+  `BrowserHub.takeOpened`). The window takes a picture of the page while the view is still shown, a moment
+  after the page scrolled, then hides the view under the popup, which shows the text, who resolved it and why,
+  and **Delete**, **Resolve** or **Reopen**, and **Close** (or Escape). An element the page does not find opens
+  the popup in the middle, with "Not found on this page". Another page in front, or the annotation deleted,
+  closes it.
 - **The list.** Under the place of the page, which gets what is left of the height (the list takes 46% at
-  most): the open annotations first, each with its number, its text, the element in a few words, the title of
-  its page and its picture, then the resolved ones with who resolved them and the note. Each has **Go to the
+  most), shown and hidden with its button of the toolbar: the open annotations first, each with its number, its
+  text, which opens it at its element, the element in a few words, the title of its page and its picture, then
+  the resolved ones with who resolved them and the note. Each has **Go to the
   element** (the page of the session that shows the address comes in front, or a new page loads it, and the
   page scrolls to the element once its document is there), **Resolve** or **Reopen**, and **Delete**. The
   button with the crosshair turns pick mode on and off and shows the number of open annotations, as does the
   globe button of the composer row, also while the browser part is closed.
 - **Marks.** For the open annotations of the address shown (what follows a `#` is not compared), the script
-  draws a numbered badge at each element its selector still finds, about once a second, since a page changes
-  without telling. An annotation whose element is not found stays in the list, with "Not found on this page".
-  Nothing is cleared when the page goes elsewhere.
+  marks each element its selector finds with a frame (a solid border of 2 pixels and a blue fill of 30%
+  opacity) and a numbered badge at its corner; resolved annotations are not marked. The host gives the list
+  again about once a second, since a page changes without telling, and the marks it drew are kept. Between two
+  lists the marks follow their elements: their rectangles are computed again at most once for each frame of
+  the page when it scrolls (listened to in the capture phase, so that containers that scroll count), when the
+  viewport changes size, and when the document changes (a `MutationObserver`, while marks are shown). A mark
+  is clipped by the ancestors of its element that clip what overflows them, and hidden when nothing of its
+  element is in sight. An element that left the document is looked for again by its selector, since a page
+  often replaces an element with a new one; a mark whose element is gone is hidden. An annotation whose element
+  is not found stays in the list, with "Not found on this page". Nothing is cleared when the page goes
+  elsewhere.
 - **Kept with the session.** `browser/<session id>/annotations.json` under the state of the instance, beside
   `pages.json`, with one `annotation-<id>.png` for each picture; written by the same single writer as the
   pages, and removed with the session. A session keeps 200 annotations, a text of 4000 characters, a picture
