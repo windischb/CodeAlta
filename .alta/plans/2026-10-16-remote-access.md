@@ -209,13 +209,28 @@ and shows the workspace with no console error.
 
 ### Phase 3 — Settings page "Remote access"
 
-- [ ] `frontend/src/remoteHost/RemoteHostSettings.tsx` + `.css` + tests, in the group of **CodeAlta MCP server**:
-      the switch (**Allow other computers to use this CodeAlta**), state and why it failed, the bind-address
-      choice with the warning, the address with a QR code (`uqr`, as `RemoteLinkQr` does), the connected
-      clients (address, since when).
-- [ ] Preferences: `remoteAccess` (`enabled`, `bind`, `port` when chosen) in `preferences.json`
-      (`DesktopPreferences.cs`), off is the default and not written.
-- [ ] Localization: `localization.ts` entries for every string.
+- [x] `frontend/src/remoteHost/RemoteHostSettings.tsx` + `remoteHost.ts` + `.css` + `remoteHost.test.tsx` +
+      `messages.ts`, in the group Advanced after **CodeAlta MCP**: the switch (**Allow other computers to use
+      this CodeAlta**), the warning while it is on (no login; a private network such as Tailscale; turn it off
+      when not needed), **Listen on** (the bind choice of phase 2: this computer only, each network by the name
+      of its interface, all networks — with a note when other computers can reach it), why the server failed,
+      the address with a copy button, a QR code (`RemoteLinkQr`), **Connected windows: n**.
+- [x] Preferences: `remoteAccess` (bool) and `remoteHost` (address) in `preferences.json`
+      (`DesktopPreferences`, `DesktopShell.SetRemoteAccess/SetRemoteHost`); off and the loopback address are
+      not written. `DesktopRemoteEndpoint.For(options, preferredHost)`: the command line first, then the
+      preference, then the loopback address; `--remote-port` turns the server on for one start.
+- [x] `DesktopRemoteServer`: `Bind` in the status, `SetEnabledAsync` and `SetBindAsync` remember their choice,
+      a running server listens again on a new address (a free port is taken again when the port was 0).
+      `remoteHost.setBind` and `addresses` (`RemoteHostService.Addresses()`: loopback, the IPv4 of each
+      interface that is up, `0.0.0.0`). Tests: preferences round trip and the endpoint's precedence, the
+      change of address while running and off, the refusal of a bad address, the order of the addresses.
+- [x] Localization: `remoteHost/messages.ts`, five languages.
+- [x] Live check in the developer instance (2026-10-16): the page lists the real interfaces (WiFi, two vEthernet,
+      all networks); the switch starts the server on 2585 and writes `"remoteAccess":true`; **Listen on** WiFi
+      writes `"remoteHost":"10.0.0.37"`, the server listens on that address (`Get-NetTCPConnection`), the page
+      shows the note, the new address and the QR code; back to this computer and off, the file is
+      `{"onClose":"ask"}` again and the port is free. `npm test`: 1802 passed, 0 failed, two browser tests cancelled
+      by a stalled machine (35-minute timeouts) and green alone.
 
 ### Phase 4 — What a remote window can and cannot do (audit, then remote mode)
 

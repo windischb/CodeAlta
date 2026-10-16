@@ -4635,9 +4635,21 @@ The sources are in `Desktop/Remote/`, `Desktop/Rpc/RemoteHostRpc.cs` and `fronte
   so a page the user visits elsewhere cannot drive the host); at most 8 remote windows at once (429); the
   limits of the RPC host. Use it on a private network such as Tailscale's, and turn it off when not needed.
   TLS, pairing and per-device tokens come later (see the plan).
-- **Host API.** `remoteHost.status` and `remoteHost.setEnabled` answer `state` (`running`, `stopped`,
-  `failed`), `enabled`, `url`, `error` and `clients` (how many remote windows are connected); the switch is
-  not kept across starts yet.
+- **Settings > Remote access** (group Advanced, `frontend/src/remoteHost/`) has the switch (**Allow other
+  computers to use this CodeAlta**), the warning that there is no login while it is on, **Listen on** (this
+  computer only, one network named by its interface with its IPv4 address, or all networks; anything but this
+  computer says that other computers on that network can reach CodeAlta), why the server does not listen when
+  it failed, and while it runs the address with a copy button, a QR code to open it on another device, and how
+  many remote windows are connected. The switch and the address are kept in `preferences.json` of the
+  application data directory (`"remoteAccess": true`, `"remoteHost": "<address>"`; off and the loopback address
+  are not written), so the developer instance has its own; `--remote-port` turns the server on for one start,
+  `--remote-host` names the address for one start, and the preferences hold otherwise. A change of address
+  while the server runs makes it listen again there.
+- **Host API.** `remoteHost.status`, `remoteHost.setEnabled` and `remoteHost.setBind` answer `state`
+  (`running`, `stopped`, `failed`), `enabled`, `url`, `error`, `clients` (how many remote windows are
+  connected), `bind` (the address it listens on) and `addresses` (the choices: `host` and the `name` of the
+  interface, empty for the loopback address and for `0.0.0.0`). `setBind` refuses what is not `localhost` or
+  an IP address (`invalid_request`).
 - **In the browser.** The page knows it is a remote window from its connection (`remoteWindowHost` in
   `frontend/src/remote/remoteMode.ts`: the view label `remote`, and the host the page was loaded from), kept
   in `App` as `remoteHost`; `lib/remote.js` also marks the document before the page runs

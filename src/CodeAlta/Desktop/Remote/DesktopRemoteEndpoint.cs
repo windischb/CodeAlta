@@ -29,11 +29,18 @@ internal sealed record DesktopRemoteEndpoint(string Host, int Port, bool Chosen)
     /// a free port.
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
-    internal static DesktopRemoteEndpoint For(DesktopLaunchOptions options)
+    internal static DesktopRemoteEndpoint For(DesktopLaunchOptions options) => For(options, null);
+
+    /// <summary>
+    /// The endpoint of a start, with the address the user kept in the preferences when the options name none.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
+    internal static DesktopRemoteEndpoint For(DesktopLaunchOptions options, string? preferredHost)
     {
         ArgumentNullException.ThrowIfNull(options);
         var port = options.RemotePort ?? (options.Owned is not { Home: null } ? 0 : options.Developer ? DeveloperPort : DefaultPort);
-        return new DesktopRemoteEndpoint(options.RemoteHost ?? DefaultHost, port, options.RemotePort is not null);
+        var host = options.RemoteHost ?? (DesktopCommandLine.IsMcpHost(preferredHost) ? preferredHost! : DefaultHost);
+        return new DesktopRemoteEndpoint(host, port, options.RemotePort is not null);
     }
 
     /// <summary>The same address with another port.</summary>

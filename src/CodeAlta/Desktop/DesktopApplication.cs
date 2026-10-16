@@ -338,8 +338,9 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             _ = mcp.StartAsync(); // A server that cannot listen says so in Settings: the application does not wait for it.
             // The remote server (prototype): the page of the application for a browser on another computer, with
             // the RPC of the workspace over a WebSocket. Off unless the start turned it on; the page can turn it on.
-            remote = new Remote.DesktopRemoteServer(Remote.DesktopRemoteEndpoint.For(options), () => Volatile.Read(ref remoteRpc),
-                new NeoManifestResourceProvider(assets, manifest), "app://codealta", enabled: options.RemotePort is not null);
+            remote = new Remote.DesktopRemoteServer(Remote.DesktopRemoteEndpoint.For(options, shell.RemoteHost), () => Volatile.Read(ref remoteRpc),
+                new NeoManifestResourceProvider(assets, manifest), "app://codealta", enabled: options.RemotePort is not null || shell.RemoteAccess,
+                shell.SetRemoteAccess, shell.SetRemoteHost);
             _ = remote.StartAsync(); // A server that cannot listen says so in its status: the application does not wait for it.
             // The installed tool becomes an application of this desktop; the page says so the first time.
             var entry = options.Developer || roots.Home is not null ? Task.FromResult(default(DesktopIntegration.DesktopEntryChange))

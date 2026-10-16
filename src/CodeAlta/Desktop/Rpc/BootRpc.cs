@@ -512,6 +512,8 @@ internal sealed record BootStatus(string State, string ProductName, string Versi
 [JsonSerializable(typeof(RemoteHostRequest))]
 [JsonSerializable(typeof(RemoteHostEnableRequest))]
 [JsonSerializable(typeof(RemoteHostResponse))]
+[JsonSerializable(typeof(RemoteHostBindRequest))]
+[JsonSerializable(typeof(RemoteHostAddress))]
 [JsonSerializable(typeof(AutomationsRequest))]
 [JsonSerializable(typeof(AutomationsListResponse))]
 [JsonSerializable(typeof(AutomationSaveRequest))]

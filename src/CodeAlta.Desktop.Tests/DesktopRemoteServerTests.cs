@@ -212,6 +212,69 @@ public sealed class DesktopRemoteServerTests
         Assert.AreEqual("unavailable", new RemoteHostService().Status(new RemoteHostRequest("epoch-1")).Status);
     }
 
+    /// <summary>The choices are kept in the preferences: off and on the loopback address unless the user chose otherwise.</summary>
+    [TestMethod]
+    public void Preferences_KeepRemoteAccessOff_AndTheAddress_UntilTheUserChooses()
+    {
+        var temp = Path.Combine(Path.GetTempPath(), "codealta-remote-prefs-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temp);
+        try
+        {
+            Assert.IsFalse(DesktopPreferences.Load(temp).RemoteAccess);
+            Assert.IsNull(DesktopPreferences.Load(temp).RemoteHost);
+            Assert.IsTrue((DesktopPreferences.Default with { RemoteAccess = true, RemoteHost = "100.64.0.5" }).Save(temp));
+            var loaded = DesktopPreferences.Load(temp);
+            Assert.AreEqual((true, "100.64.0.5"), (loaded.RemoteAccess, loaded.RemoteHost));
+            Assert.AreEqual("""{"onClose":"ask","remoteAccess":true,"remoteHost":"100.64.0.5"}""", File.ReadAllText(Path.Combine(temp, "preferences.json")));
+            // Only the choices are written; an address that is none is not read.
+            Assert.IsTrue(DesktopPreferences.Default.Save(temp));
+            Assert.AreEqual("""{"onClose":"ask"}""", File.ReadAllText(Path.Combine(temp, "preferences.json")));
+            File.WriteAllText(Path.Combine(temp, "preferences.json"), """{"onClose":"ask","remoteAccess":"yes","remoteHost":"example.com"}""");
+            Assert.AreEqual((false, (string?)null), (DesktopPreferences.Load(temp).RemoteAccess, DesktopPreferences.Load(temp).RemoteHost));
+            // The endpoint of a start takes the kept address when the options name none.
+            Assert.AreEqual("100.64.0.5", DesktopRemoteEndpoint.For(Parse()!, "100.64.0.5").Host);
+            Assert.AreEqual("::1", DesktopRemoteEndpoint.For(Parse("--remote-host", "::1")!, "100.64.0.5").Host);
+            Assert.AreEqual("127.0.0.1", DesktopRemoteEndpoint.For(Parse()!, "example.com").Host);
+        }
+        finally { Directory.Delete(temp, recursive: true); }
+    }
+
+    /// <summary>The address can be changed while the server runs: it listens again there, and the choice is kept.</summary>
+    [TestMethod]
+    public async Task Server_ListensOnAnotherAddress_WhenAsked_AndRemembersIt()
+    {
+        await using var rpc = BuildHost();
+        var enabled = new List<bool>();
+        var hosts = new List<string>();
+        await using var server = new DesktopRemoteServer(new DesktopRemoteEndpoint("127.0.0.1", 0, false), () => rpc, new Page(), Origin, enabled: true, enabled.Add, hosts.Add);
+        await server.StartAsync();
+        Assert.AreEqual("127.0.0.1", server.Status.Bind);
+        var before = new Uri(server.Status.Url!);
+        var service = new RemoteHostService(server, "epoch-1", static () => [new("127.0.0.1", ""), new("localhost", "Loop")]);
+        var moved = await service.SetBindAsync(new RemoteHostBindRequest("epoch-1", "localhost"), CancellationToken.None);
+        Assert.AreEqual(("ok", DesktopRemoteStatus.Running, "localhost"), (moved.Status, moved.State, moved.Bind));
+        StringAssert.StartsWith(moved.Url, "http://localhost:");
+        Assert.AreNotEqual(before.Host, new Uri(moved.Url!).Host); // A free port is taken again: the instance's port is fixed, this test's is not.
+        CollectionAssert.AreEqual(new[] { "localhost" }, hosts);
+        Assert.AreEqual(2, moved.Addresses.Length);
+        Assert.AreEqual("invalid_request", (await service.SetBindAsync(new RemoteHostBindRequest("epoch-1", "example.com"), CancellationToken.None)).Status);
+        await service.SetEnabledAsync(new RemoteHostEnableRequest("epoch-1", false), CancellationToken.None);
+        CollectionAssert.AreEqual(new[] { false }, enabled);
+        // Off, the address still changes for the next start, without listening.
+        var off = await service.SetBindAsync(new RemoteHostBindRequest("epoch-1", "127.0.0.1"), CancellationToken.None);
+        Assert.AreEqual((DesktopRemoteStatus.Stopped, "127.0.0.1", (string?)null), (off.State, off.Bind, off.Url));
+        CollectionAssert.AreEqual(new[] { "localhost", "127.0.0.1" }, hosts);
+    }
+
+    [TestMethod]
+    public void Addresses_StartWithThisComputer_AndEndWithEveryAddress()
+    {
+        var addresses = RemoteHostService.Addresses();
+        Assert.AreEqual(new RemoteHostAddress("127.0.0.1", ""), addresses[0]);
+        Assert.AreEqual(new RemoteHostAddress("0.0.0.0", ""), addresses[^1]);
+        foreach (var address in addresses) Assert.IsTrue(DesktopCommandLine.IsMcpHost(address.Host), address.Host);
+    }
+
     [TestMethod]
     public void TransportModule_GoesBeforeThePagesOwnScript()
     {

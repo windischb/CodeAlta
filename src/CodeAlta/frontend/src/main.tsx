@@ -210,6 +210,7 @@ import { reasoningShown } from "./promptSurface/promptSurface";
 import { WorktreeManager } from "./worktrees/WorktreeManager";
 import { WorktreeSettings } from "./worktrees/WorktreeSettings";
 import { McpHostSettings } from "./mcpHost/McpHostSettings";
+import { RemoteHostSettings } from "./remoteHost/RemoteHostSettings";
 import { createSpacesHub } from "./spaces/spacesHub";
 import { SpaceActivityBar, SpaceIcon, SpaceSwitch } from "./spaces/SpaceViews";
 import { readSpacePageLink, type SpacePageTarget } from "./spaces/spaceSummary";
@@ -263,6 +264,7 @@ import "./statistics/statistics.css";
 import "./issues/issues.css";
 import "./worktrees/worktrees.css";
 import "./mcpHost/mcpHost.css";
+import "./remoteHost/remoteHost.css";
 import "./spaces/spaces.css";
 import "./canvases/canvases.css";
 import "./landing/landing.css";
@@ -335,7 +337,7 @@ type SessionBranchHost = Readonly<{ requests: BranchRequests;
 const demoMode = import.meta.env.VITE_DEMO_MODE === "true";
 const noSubscription = () => () => { };
 const noBookmarkProjects: readonly { id: string; name: string }[] = [];
-type View = "workspace" | "appearance" | "general" | "spaces" | "providers" | "models" | "prompts" | "mcp" | "logs" | "skills" | "plugins" | "about" | "config" | "worktrees" | "workItems" | "pullRequests" | "mcpHost" | "permissions" | "sessions" | "storage" | "speech";
+type View = "workspace" | "appearance" | "general" | "spaces" | "providers" | "models" | "prompts" | "mcp" | "logs" | "skills" | "plugins" | "about" | "config" | "worktrees" | "workItems" | "pullRequests" | "mcpHost" | "remoteHost" | "permissions" | "sessions" | "storage" | "speech";
 type SettingsSection = Exclude<View, "workspace">;
 
 function App() {
@@ -4507,6 +4509,7 @@ function App() {
           project={selectedProject && !selectedProject.archived ? { id: selectedProject.id, name: selectedProject.name } : null}
           onOpenFile={owned ? closeSettings : undefined} />
       : settingsSection === "mcpHost" ? <McpHostSettings epoch={owned ? status!.hostEpoch : null} developer={status?.developerMode ?? false} />
+      : settingsSection === "remoteHost" ? <RemoteHostSettings epoch={owned ? status!.hostEpoch : null} />
       : settingsSection === "speech" ? <SpeechSettings api={speechApi} speech={speech} epoch={owned ? status!.hostEpoch : null} />
       : settingsSection === "storage" ? <StorageSettings api={storage} epoch={owned ? status!.hostEpoch : null} onOpenFile={owned ? closeSettings : undefined}
           maintenance={storageMaintenance.maintenance} retention={storageMaintenance.retention} />
@@ -4672,7 +4675,7 @@ function SettingsOverlay({ section, onSection, onClose, spaces, spacePage, onSpa
       ["permissions", "Permissions", "shield"], ["sessions", "Sessions", "chat"],
       ["worktrees", "Worktrees", "worktree"], ["workItems", "Work items", "task"], ["pullRequests", "Pull requests", "pullRequest"]]],
     ["Extensions", [["plugins", "Plugins", "plugin"], ["mcp", "MCP Servers", "server"]]],
-    ["Advanced", [["config", "Configuration file", "config"], ["storage", "Storage", "database"], ["mcpHost", "CodeAlta MCP", "remote"]]],
+    ["Advanced", [["config", "Configuration file", "config"], ["storage", "Storage", "database"], ["mcpHost", "CodeAlta MCP", "remote"], ["remoteHost", "Remote access", "remote"]]],
     ["Diagnostics", [["logs", "Application Logs", "logs"], ["about", "About", "info"]]],
   ];
   return <AppWindow storageKey="codealta.desktop.window.settings.v1" className="settings-dialog" titleId="settings-title" title={t("Settings")}

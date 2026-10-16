@@ -514,6 +514,26 @@ internal sealed class DesktopShell
         _writer.Write();
     }
 
+    /// <summary>Whether the remote server of the application is turned on.</summary>
+    internal bool RemoteAccess { get { lock (_gate) return _preferences.RemoteAccess; } }
+
+    /// <summary>The address the remote server listens on; null for the loopback address.</summary>
+    internal string? RemoteHost { get { lock (_gate) return _preferences.RemoteHost; } }
+
+    /// <summary>Turns the remote server on or off for the next starts; the server itself is started and stopped by its owner.</summary>
+    internal void SetRemoteAccess(bool value)
+    {
+        lock (_gate) _preferences = _preferences with { RemoteAccess = value };
+        _writer.Write();
+    }
+
+    /// <summary>Keeps the address the remote server listens on for the next starts; the loopback address is not written.</summary>
+    internal void SetRemoteHost(string? value)
+    {
+        lock (_gate) _preferences = _preferences with { RemoteHost = value is null || value == Remote.DesktopRemoteEndpoint.DefaultHost ? null : value };
+        _writer.Write();
+    }
+
     /// <summary>
     /// Hides the window and leaves the application running: the user's answer to the question asked when the
     /// window was closed.

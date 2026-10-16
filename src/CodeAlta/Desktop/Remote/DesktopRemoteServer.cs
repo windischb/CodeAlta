@@ -20,7 +20,8 @@ namespace CodeAlta.Desktop.Remote;
 /// <param name="Url">The address a browser opens while it runs.</param>
 /// <param name="Error">Why it is not listening, when it failed.</param>
 /// <param name="Clients">How many remote windows are connected.</param>
-internal sealed record DesktopRemoteStatus(string State, bool Enabled, string? Url, string? Error, int Clients)
+/// <param name="Bind">The address the server listens on.</param>
+internal sealed record DesktopRemoteStatus(string State, bool Enabled, string? Url, string? Error, int Clients, string Bind)
 {
     internal const string Running = "running";
     internal const string Stopped = "stopped";
@@ -67,10 +68,12 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
 
     private readonly Lock _gate = new();
     private readonly SemaphoreSlim _transition = new(1, 1);
-    private readonly DesktopRemoteEndpoint _endpoint;
     private readonly Func<NeoRpcHost?> _rpc;
     private readonly INeoResourceProvider _assets;
     private readonly string _origin;
+    private readonly Action<bool>? _rememberEnabled;
+    private readonly Action<string>? _rememberHost;
+    private DesktopRemoteEndpoint _endpoint;
     private int _connections;
     private WebApplication? _application;
     private DesktopRemoteStatus _status;
@@ -82,8 +85,11 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
     /// <param name="assets">The files of the page, as the window loads them.</param>
     /// <param name="origin">The origin the window's page is served from (<c>app://codealta</c>), which the asset provider answers.</param>
     /// <param name="enabled">Whether the server is turned on.</param>
+    /// <param name="rememberEnabled">Keeps whether the server is turned on, for the next starts.</param>
+    /// <param name="rememberHost">Keeps the address the server listens on, for the next starts.</param>
     /// <exception cref="ArgumentNullException">A required argument is null.</exception>
-    internal DesktopRemoteServer(DesktopRemoteEndpoint endpoint, Func<NeoRpcHost?> rpc, INeoResourceProvider assets, string origin, bool enabled)
+    internal DesktopRemoteServer(DesktopRemoteEndpoint endpoint, Func<NeoRpcHost?> rpc, INeoResourceProvider assets, string origin, bool enabled,
+        Action<bool>? rememberEnabled = null, Action<string>? rememberHost = null)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
         ArgumentNullException.ThrowIfNull(rpc);
@@ -93,7 +99,9 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
         _rpc = rpc;
         _assets = assets;
         _origin = origin.TrimEnd('/');
-        _status = new DesktopRemoteStatus(DesktopRemoteStatus.Stopped, enabled, null, null, 0);
+        _rememberEnabled = rememberEnabled;
+        _rememberHost = rememberHost;
+        _status = new DesktopRemoteStatus(DesktopRemoteStatus.Stopped, enabled, null, null, 0, endpoint.Host);
     }
 
     /// <summary>Gets what the server is doing.</summary>
@@ -114,13 +122,14 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
         finally { _transition.Release(); }
     }
 
-    /// <summary>Turns the server on or off, now.</summary>
+    /// <summary>Turns the server on or off, now and for the next starts.</summary>
     internal async Task SetEnabledAsync(bool enabled)
     {
         await _transition.WaitAsync().ConfigureAwait(false);
         try
         {
             if (_disposed) return;
+            _rememberEnabled?.Invoke(enabled);
             if (enabled)
             {
                 Set(Status with { Enabled = true });
@@ -129,8 +138,31 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
             else
             {
                 await StopCoreAsync().ConfigureAwait(false);
-                Set(new DesktopRemoteStatus(DesktopRemoteStatus.Stopped, false, null, null, 0));
+                Set(new DesktopRemoteStatus(DesktopRemoteStatus.Stopped, false, null, null, 0, _endpoint.Host));
             }
+        }
+        finally { _transition.Release(); }
+    }
+
+    /// <summary>
+    /// Changes the address the server listens on, now and for the next starts: a server that runs listens again
+    /// on the new address, on the port it had.
+    /// </summary>
+    /// <param name="host"><c>localhost</c> or an IP address.</param>
+    /// <exception cref="ArgumentException"><paramref name="host"/> names no address a server can listen on.</exception>
+    internal async Task SetBindAsync(string host)
+    {
+        if (!DesktopCommandLine.IsMcpHost(host)) throw new ArgumentException("The host must be localhost or an IP address.", nameof(host));
+        await _transition.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed || string.Equals(_endpoint.Host, host, StringComparison.OrdinalIgnoreCase)) return;
+            _rememberHost?.Invoke(host);
+            var running = _application is not null;
+            if (running) await StopCoreAsync().ConfigureAwait(false);
+            _endpoint = _endpoint with { Host = host };
+            Set(Status with { State = DesktopRemoteStatus.Stopped, Url = null, Error = null, Clients = 0, Bind = host });
+            if (running) await StartCoreAsync().ConfigureAwait(false);
         }
         finally { _transition.Release(); }
     }
@@ -166,13 +198,13 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
             _application = application;
             var url = _endpoint.On(BoundPort(application)).Url;
             Info($"The remote server listens at {url}");
-            Set(new DesktopRemoteStatus(DesktopRemoteStatus.Running, true, url, null, 0));
+            Set(new DesktopRemoteStatus(DesktopRemoteStatus.Running, true, url, null, 0, _endpoint.Host));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or NotSupportedException
             or System.Net.Sockets.SocketException or FormatException)
         {
             Warn($"The remote server could not listen on {_endpoint.Host}:{_endpoint.Port}: {exception.Message}");
-            Set(new DesktopRemoteStatus(DesktopRemoteStatus.Failed, true, null, exception.Message, 0));
+            Set(new DesktopRemoteStatus(DesktopRemoteStatus.Failed, true, null, exception.Message, 0, _endpoint.Host));
         }
     }
 

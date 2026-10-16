@@ -1,0 +1,10 @@
+/* Settings page of the remote server of the application. */
+.remote-host-settings .remote-host-switch { margin: 6px 0 10px; }
+.remote-host-settings .remote-host-warning { max-width: 720px; margin-bottom: 14px; }
+.remote-host-field { display: grid; gap: 4px; max-width: 720px; margin-bottom: 12px; }
+.remote-host-field > span { color: var(--muted); font-size: 12px; }
+.remote-host-field input { font-family: var(--bp-typography-family-mono); font-size: 12px; }
+.remote-host-field .remote-host-reach { color: var(--bp-intent-warning-text-color, var(--yellow)); }
+.remote-host-open { display: grid; justify-items: start; gap: 8px; max-width: 720px; margin-top: 8px; }
+.remote-host-open .remote-control-qr { justify-self: start; }
+.remote-host-clients { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }

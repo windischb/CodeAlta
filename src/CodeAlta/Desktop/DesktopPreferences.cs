@@ -54,6 +54,15 @@ internal sealed record DesktopPreferences(DesktopCloseBehavior OnClose, bool Mcp
     internal const int MaximumRemoteControlSessions = 32;
 
     /// <summary>
+    /// Whether the remote server of the application runs: the page of CodeAlta in a browser on another computer.
+    /// Off unless the user turned it on. The host keeps it because it starts the server before the page exists.
+    /// </summary>
+    internal bool RemoteAccess { get; init; }
+
+    /// <summary>The address the remote server listens on; null for the loopback address.</summary>
+    internal string? RemoteHost { get; init; }
+
+    /// <summary>
     /// The sessions that have Remote Control on, the last turned on first: those the reconnect setting turns on
     /// again when CodeAlta starts.
     /// </summary>
@@ -141,13 +150,16 @@ internal sealed record DesktopPreferences(DesktopCloseBehavior OnClose, bool Mcp
             var editor = root.TryGetProperty("externalEditor", out var chosen) && chosen.ValueKind == JsonValueKind.Object
                 ? ExternalEditorChoice.Valid(Text(chosen, "id"), Text(chosen, "program"), Text(chosen, "arguments")) ?? ExternalEditorChoice.None
                 : ExternalEditorChoice.None;
+            // The remote server is off unless the file says otherwise, on the loopback address unless it names one that is one.
+            var remoteAccess = root.TryGetProperty("remoteAccess", out var allowed) && allowed.ValueKind == JsonValueKind.True;
+            var remoteHost = DesktopCommandLine.IsMcpHost(Text(root, "remoteHost")) ? Text(root, "remoteHost") : null;
             if (root.TryGetProperty("onClose", out var value) && value.ValueKind == JsonValueKind.String && TryParse(value.GetString(), out var behavior))
-                return new(behavior, server, width, zoom, review, inherit, reconnect) { RemoteControlSessions = remote, ExternalEditor = editor };
+                return new(behavior, server, width, zoom, review, inherit, reconnect) { RemoteControlSessions = remote, ExternalEditor = editor, RemoteAccess = remoteAccess, RemoteHost = remoteHost };
             // Written before the question existed, by the switch of the settings: the user had chosen.
             return root.TryGetProperty("closeToTray", out var kept) && kept.ValueKind is JsonValueKind.True or JsonValueKind.False
-                ? new(kept.GetBoolean() ? DesktopCloseBehavior.KeepRunning : DesktopCloseBehavior.Exit, server, width, zoom, review, inherit, reconnect) { RemoteControlSessions = remote, ExternalEditor = editor }
+                ? new(kept.GetBoolean() ? DesktopCloseBehavior.KeepRunning : DesktopCloseBehavior.Exit, server, width, zoom, review, inherit, reconnect) { RemoteControlSessions = remote, ExternalEditor = editor, RemoteAccess = remoteAccess, RemoteHost = remoteHost }
                 : Default with { McpServer = server, SessionWidth = width, Zoom = zoom, ReviewPermissions = review, InheritPermissions = inherit,
-                    ReconnectRemoteControl = reconnect, RemoteControlSessions = remote, ExternalEditor = editor };
+                    ReconnectRemoteControl = reconnect, RemoteControlSessions = remote, ExternalEditor = editor, RemoteAccess = remoteAccess, RemoteHost = remoteHost };
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or ArgumentException or NotSupportedException)
         {
@@ -170,6 +182,7 @@ internal sealed record DesktopPreferences(DesktopCloseBehavior OnClose, bool Mcp
                 + (Zoom == DefaultZoom ? "" : ",\"zoom\":" + Zoom.ToString(System.Globalization.CultureInfo.InvariantCulture))
                 + (ReviewPermissions ? ",\"reviewPermissions\":true" : "") + (InheritPermissions ? ",\"inheritPermissions\":true" : "")
                 + (ReconnectRemoteControl ? ",\"reconnectRemoteControl\":true" : "")
+                + (RemoteAccess ? ",\"remoteAccess\":true" : "") + (RemoteHost is { } remoteHost ? ",\"remoteHost\":" + Quoted(remoteHost) : "")
                 + (RemoteControlSessions.IsDefaultOrEmpty ? "" : ",\"remoteControlSessions\":" + JsonSerializer.Serialize(RemoteControlSessions.ToArray(), DesktopPreferencesJson.Default.StringArray))
                 + (ExternalEditor.Id is not { } editor ? "" : ",\"externalEditor\":{\"id\":" + Quoted(editor)
                     + (ExternalEditor.Program is { } program ? ",\"program\":" + Quoted(program) : "")
