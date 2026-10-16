@@ -5,6 +5,7 @@ import { ActivitySpinner } from "../ActivitySpinner";
 import { AppIcon } from "../AppIcon";
 import { BrandIcon, type BrandIconName } from "../BrandIcon";
 import { pickFolder } from "../folderPicker";
+import { remoteDocumentHost } from "../remote/remoteMode";
 import type { MessageKey } from "../localization";
 import { useShellLanguage } from "../shellLanguage";
 import type { SpaceSectionProps } from "./spaceSection";
@@ -150,7 +151,8 @@ export function SpaceIdentity({ space, hub, canEdit, run, api = spaceIdentity }:
       </IdentityCard>
       <IdentityCard id={id} part="github" brand="github" title="GitHub" empty={emptyCard("github", github)} check={checks.github} problem={null} onCheck={check}>
         {field("github", "folder", "Profile folder", github.configDir, usual?.gitHubFolder ?? null, configDir => edit("github", { configDir }),
-          canEdit && <Button size="small" variant="minimal" icon={<AppIcon name="folder" size={14} />} disabled={disabled}
+          // The folder dialog is the host's: a remote window types the path.
+          canEdit && !remoteDocumentHost() && <Button size="small" variant="minimal" icon={<AppIcon name="folder" size={14} />} disabled={disabled}
             aria-label={t("Browse…")} title={t("Browse…")} onClick={() => void browse()} />)}
         {login && <div className="space-identity-login">
           <span>{t("Sign in with this profile")}</span>

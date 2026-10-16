@@ -200,6 +200,7 @@ import { reloadsAfterClose, rpcSessionClosed, sessionRecoveryKey } from "./sessi
 import { installKeyboardClickGuard } from "./keyboardClickGuard";
 import { installContextClickGuard } from "./contextClickGuard";
 import { closeApplicationWindow, logoUrl, useWindowTitleBar, WindowBrand, WindowControls } from "./windowChrome";
+import { nextZoom, remoteWindowHost } from "./remote/remoteMode";
 import { WindowZoom, zoomWindow } from "./WindowZoom";
 import { createPluginEventsRead } from "./pluginEvents";
 import { ProjectContext } from "./ProjectContext";
@@ -406,6 +407,13 @@ function App() {
   const [hostLiveness] = useState(() => createHostLiveness(() => boot.status({}, { timeoutMilliseconds: hostPingTimeout })));
   const hostSilent = useSyncExternalStore(hostLiveness.subscribe, hostLiveness.getSnapshot);
   const windowSnapshot = useWindowTitleBar();
+  // The host of this window when it is remote (a browser connected to the remote server), known once connected.
+  const [remoteHost, setRemoteHost] = useState<string | null>(null);
+  const remoteHostRef = useRef(remoteHost);
+  remoteHostRef.current = remoteHost;
+  // A remote window zooms its own page: the host's zoom is the native window's.
+  const [remoteZoom, setRemoteZoom] = useState(100);
+  useEffect(() => { document.documentElement.style.zoom = remoteHost && remoteZoom !== 100 ? `${remoteZoom}%` : ""; }, [remoteHost, remoteZoom]);
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>({ kind: "loading" });
   const currentSnapshot = useRef<WorkspaceSnapshot | undefined>(undefined);
   const projectInspection = useRef({ version: 0, ready: false });
@@ -679,6 +687,8 @@ function App() {
     });
     void connect().then(connection => {
       if (lifetime.signal.aborted) return;
+      // A remote window: what the host's window does by itself (its title bar, its dialogs, exit) is not this page's.
+      setRemoteHost(remoteWindowHost(connection.runtimeInfo, location));
       const closed = () => {
         retention.invalidate();
         console.warn("[CodeAlta RPC] connection closed; inspect receipts before any explicit retry. No automatic replay.", { reason: connection.closeReason ?? null });
@@ -1583,6 +1593,11 @@ function App() {
   // Exit asks first while files hold unsaved edits; saving stops at the first file that could not be saved.
   const [exiting, setExiting] = useState<{ tabs: FileTab[]; busy: boolean } | null>(null);
   function exitApplication() {
+    // A remote window does not end the application: the computer that runs it has its own window for that.
+    if (remoteHostRef.current) {
+      showToast({ message: translate(shownLocale.current, "This window is remote: exit CodeAlta from its own window on {host}.", { host: remoteHostRef.current }), intent: "warning", icon: "warning-sign", timeout: 6000 });
+      return;
+    }
     // An exit asked for anywhere answers the question about the closed window.
     setCloseQuestion(false);
     const unsaved = fileTabs.open.filter(tab => fileEditors.dirty(fileTabKey(tab)));
@@ -1720,6 +1735,8 @@ function App() {
       try {
         for await (const notice of await desktopShell.watch({}, { signal: abort.signal })) {
           if (abort.signal.aborted) return;
+          // The questions of the native window (its close, an exit, Ctrl+W of the view) are answered there, not in a remote window.
+          if (remoteHostRef.current && (notice.kind === "exit-requested" || notice.kind === "close-tab" || notice.kind === "confirm-exit" || notice.kind === "confirm-close")) continue;
           if (notice.kind === "entry-added") { if (currentPlatform.current) announceEntry(currentPlatform.current); else entryPending.current = true; }
           else if (notice.kind === "exit-requested") requestExit.current();
           else if (notice.kind === "close-tab") nativeCloseTab.current();
@@ -1925,7 +1942,8 @@ function App() {
   // After opening a project or creating, switching or closing a tab, typing goes to the prompt now shown.
   // Two frames let the newly active pane render its prompt; a file tab focuses its own editor.
   // The operating system's folder dialog exists where a host owns the window and folders can be added.
-  const canPickFolder = () => !demoMode && owned && !!mutation?.capability.canMutate();
+  // The folder dialog is the host's: a remote window types the path in the Open project window instead.
+  const canPickFolder = () => !demoMode && owned && !remoteHost && !!mutation?.capability.canMutate();
   const browseForFolder = (initialDirectory: string | null) => pickFolder(desktopShell.pickFolder, t("Add a project folder"), initialDirectory);
   // "+" adds a folder: it goes straight to the folder dialog. A folder that is already a project is opened;
   // any other is shown in the Open project window, checked and ready to be trusted. Where there is no folder
@@ -2290,13 +2308,14 @@ function App() {
   const currentHostEpoch = useRef(status?.hostEpoch);
   currentHostEpoch.current = status?.hostEpoch;
   // The external editor and the file manager of the system: the host is asked for the editor when an action first names it.
+  // A remote window does not ask: the editor and the file manager would open on the computer that runs CodeAlta.
   const [externalOpener] = useState(() => createExternalOpener({
     list: refresh => externalEditorsApi.list({ refresh }, { timeoutMilliseconds: 15_000 }),
-    openFolder: async (target, projectId, sessionId) => (await externalEditorsApi.openFolder({ expectedEpoch: currentHostEpoch.current ?? null, projectId, sessionId, target },
+    openFolder: async (target, projectId, sessionId) => remoteHostRef.current ? "remote" : (await externalEditorsApi.openFolder({ expectedEpoch: currentHostEpoch.current ?? null, projectId, sessionId, target },
       { timeoutMilliseconds: 15_000 })).status,
-    openEntry: async (target, projectId, path, line) => (await projectFiles.openExternal({ expectedEpoch: currentHostEpoch.current ?? null, projectId, path, target, line, column: null },
+    openEntry: async (target, projectId, path, line) => remoteHostRef.current ? "remote" : (await projectFiles.openExternal({ expectedEpoch: currentHostEpoch.current ?? null, projectId, path, target, line, column: null },
       { timeoutMilliseconds: 15_000 })).status,
-    openWorktree: async (target, projectId, path) => (await worktreesApi.openExternal({ expectedEpoch: currentHostEpoch.current ?? null, projectId, path, target },
+    openWorktree: async (target, projectId, path) => remoteHostRef.current ? "remote" : (await worktreesApi.openExternal({ expectedEpoch: currentHostEpoch.current ?? null, projectId, path, target },
       { timeoutMilliseconds: 15_000 })).status,
     failed: message => showToast({ message: translate(shownLocale.current, message), intent: "warning", icon: "warning-sign", timeout: 6000 }),
   }));
@@ -2532,6 +2551,8 @@ function App() {
     if (command === "exit") { exitApplication(); return; }
     // The host zooms the window's view and keeps the zoom for the next starts; an open window does not stop it.
     if (command === "zoomIn" || command === "zoomOut" || command === "resetZoom") {
+      // A remote window zooms its own page, by the host's steps; the native window is not touched.
+      if (remoteHost) { setRemoteZoom(zoom => nextZoom(zoom, command === "zoomIn" ? 1 : command === "zoomOut" ? -1 : 0)); return; }
       // The answer holds the zoom the window now has: the title bar shows it.
       void zoomWindow(command, desktopShell.zoom, setShellPreferences).catch(error => console.error("[CodeAlta] zoom failed", error));
       return;
@@ -4042,7 +4063,7 @@ function App() {
       <div className={`workspace-shell${railVisible ? " project-rail-open" : ""}`} ref={workspaceShell} style={{
           "--explorer-width": `${ideWidth.width}px`,
         } as CSSProperties}>
-        <WindowBrand developer={status?.developerMode ?? false}>
+        <WindowBrand developer={status?.developerMode ?? false} remote={remoteHost}>
           {/* What the title bar has no room for folds into a menu: the Explorer and Settings always show. */}
           <ActivityRail label={t("Workspace navigation")} moreLabel={t("More")}
             first={<Button ref={projectRailToggle} variant="minimal" size="small" active={railVisible} icon={<AppIcon name="folder" size={16} />} aria-label={t("Explorer")} title={t("Explorer")} aria-expanded={railVisible} aria-controls="project-rail" onClick={toggleProjects} />}
@@ -4071,7 +4092,7 @@ function App() {
             aria-label={t("Home")} title={t("Home")} onClick={() => { if (landingCommand) runPluginCommand(landingCommand.id); }} />
           <Button variant="minimal" size="small" className="documentation-open" icon={<AppIcon name="documentation" size={16} />} disabled={!owned}
             active={!!fileTabs.active && isDocumentationTab(fileTabs.active)} aria-label={t("Documentation")} title={t("Documentation")} onClick={() => openDocumentation()} />
-          {shellPreferences && <WindowZoom zoom={shellPreferences.zoom} run={runCommand} />}
+          {shellPreferences && <WindowZoom zoom={remoteHost ? remoteZoom : shellPreferences.zoom} run={runCommand} />}
           <Button variant="minimal" size="small" className="theme-switch" icon={<AppIcon name={themeIcons[theme]} size={16} />}
             aria-label={t("Theme: {theme}", { theme: t(themeLabel(theme)) })} title={t("Theme: {theme}", { theme: t(themeLabel(theme)) })} onClick={() => setTheme(nextTheme(theme))} />
         </div>
@@ -4478,7 +4499,7 @@ function App() {
       : settingsSection === "sessions" ? <SessionSettings epoch={owned ? status!.hostEpoch : null} onOpenFile={owned ? closeSettings : undefined}
         tabs={{ single: singleTab, setSingle: setSingleTab }} />
       : settingsSection === "worktrees" ? <WorktreeSettings epoch={owned ? status!.hostEpoch : null}
-        pick={owned ? initial => pickFolder(desktopShell.pickFolder, t("Folder for worktrees"), initial) : undefined}
+        pick={owned && !remoteHost ? initial => pickFolder(desktopShell.pickFolder, t("Folder for worktrees"), initial) : undefined}
         onOpenFile={owned ? closeSettings : undefined} />
       : settingsSection === "workItems" ? <WorkItemSettings hub={workHub} providers={runProviders} loadModels={loadRunModels} onOpenProviders={() => navigate("providers")}
         epoch={owned ? status!.hostEpoch : null} onOpenFile={owned ? closeSettings : undefined} />

@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { createDesktopClient, invoke, subscribe, type DesktopRpc, type DesktopWindowSnapshot, type NeoRpcCallOptions } from "@neoastra/client";
+import { connect, createDesktopClient, invoke, subscribe, type DesktopRpc, type DesktopWindowSnapshot, type NeoRpcCallOptions } from "@neoastra/client";
 import { neoRpcContractHash } from "#neoastra";
 import logo from "../../../../img/CodeAlta.svg";
+import { isRemoteWindow } from "./remote/remoteMode";
 import { useShellLanguage } from "./shellLanguage";
 
 // The host checks the contract of every call, including the desktop handlers'.
@@ -27,7 +28,9 @@ export function useWindowTitleBar(): DesktopWindowSnapshot | undefined {
   useEffect(() => {
     let disposed = false;
     let dispose: (() => Promise<void>) | undefined;
-    void desktop.window.attachTitleBar({ onChange: setSnapshot }).then(binding => {
+    // A remote window is a page in a browser: the title bar of the native window is not its own.
+    void connect().then(connection => isRemoteWindow(connection.runtimeInfo) ? undefined : desktop.window.attachTitleBar({ onChange: setSnapshot })).then(binding => {
+      if (!binding) return;
       if (disposed) void binding.dispose();
       else dispose = binding.dispose;
     }).catch(() => { /* No desktop window to attach to. */ });
@@ -45,10 +48,13 @@ export function closeApplicationWindow(): void {
  * The application mark at the start of the title bar, followed by the workspace navigation (`children`);
  * the area around them moves the window. The name is not written: the room goes to the navigation.
  */
-export function WindowBrand({ developer = false, children }: { developer?: boolean; children?: ReactNode }) {
+export function WindowBrand({ developer = false, remote = null, children }: { developer?: boolean; remote?: string | null; children?: ReactNode }) {
+  const { t } = useShellLanguage();
   return <div className="window-brand" data-neoastra-drag-region>
     <img className="window-brand-mark" src={logoUrl} alt="CodeAlta" title="CodeAlta" draggable={false} />
     {developer && <span className="window-brand-tag">dev</span>}
+    {/* A remote window says whose it is: what it does happens on that computer. */}
+    {remote && <span className="window-brand-tag window-brand-remote" title={t("Remote window of {host}", { host: remote })}>remote</span>}
     {children}
   </div>;
 }

@@ -87,6 +87,8 @@ export type ExternalOpener = ReturnType<typeof createExternalOpener>;
 
 /** What the window says when something was not opened. */
 export function failure(target: ExternalTarget, status: string): MessageKey {
+  // A remote window does not ask: the programs would open on the computer that runs CodeAlta.
+  if (status === "remote") return "This window is remote: the editor and the file manager would open on the computer that runs CodeAlta, not here.";
   if (target === "explorer") return status === "failed" ? "The file manager could not be opened." : "The folder could not be opened.";
   switch (status) {
     case "no_editor": return "No external editor was found. Choose one in Settings > General.";

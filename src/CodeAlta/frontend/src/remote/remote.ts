@@ -4,6 +4,8 @@
 import { installRemoteTransport } from "./remoteTransport";
 
 if (location.protocol === "http:" || location.protocol === "https:") {
+  // The document is marked before any module of the page runs: what cannot wait for the connection reads it.
+  document.documentElement.dataset.codealtaRemote = location.host;
   installRemoteTransport({
     createSocket: url => new WebSocket(url),
     url: `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/rpc`,

@@ -63,6 +63,9 @@ test("the failures and the file manager are named for the user", () => {
   assert.equal(failure("editor", "failed"), "The external editor could not be started.");
   assert.equal(failure("editor", "not_found"), "The folder could not be opened.");
   assert.equal(failure("explorer", "worktree_missing"), "The folder could not be opened.");
+  // A remote window does not open anything on the computer that runs CodeAlta.
+  assert.equal(failure("editor", "remote"), "This window is remote: the editor and the file manager would open on the computer that runs CodeAlta, not here.");
+  assert.equal(failure("explorer", "remote"), "This window is remote: the editor and the file manager would open on the computer that runs CodeAlta, not here.");
   assert.equal(openInFileManagerKey("windows"), "Open in File Explorer");
   assert.equal(openInFileManagerKey("macos", true), "Open {name} in Finder");
   assert.equal(openInFileManagerKey("linux"), "Open in the file manager");

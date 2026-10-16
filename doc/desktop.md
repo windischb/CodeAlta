@@ -4638,10 +4638,27 @@ The sources are in `Desktop/Remote/`, `Desktop/Rpc/RemoteHostRpc.cs` and `fronte
 - **Host API.** `remoteHost.status` and `remoteHost.setEnabled` answer `state` (`running`, `stopped`,
   `failed`), `enabled`, `url`, `error` and `clients` (how many remote windows are connected); the switch is
   not kept across starts yet.
-- **In the browser.** The window's own parts (native caption buttons, the folder dialog, *Open in editor*,
-  *Exit*) still act on the computer that runs CodeAlta: what a remote window shows instead is the work of a
-  later phase. `window.isSecureContext` is true on the loopback address and false on a plain `http:` LAN
-  address, so some Web APIs (clipboard, notifications, microphone) are not available there until TLS.
+- **In the browser.** The page knows it is a remote window from its connection (`remoteWindowHost` in
+  `frontend/src/remote/remoteMode.ts`: the view label `remote`, and the host the page was loaded from), kept
+  in `App` as `remoteHost`; `lib/remote.js` also marks the document before the page runs
+  (`data-codealta-remote` on the root element, `remoteDocumentHost`), for a component that cannot wait for
+  the connection or must not import the client (a module the node tests load). What the native window does
+  by itself is then not the page's:
+  - a **remote** tag beside the mark of the application names the host on hover (`WindowBrand`); the title
+    bar of the native window is not attached (`useWindowTitleBar`), so there are no caption buttons;
+  - the folder dialog is the host's: **Add a project folder** opens the Open project window to type the path,
+    and the **Browse…** buttons of the worktree folder and of the GitHub profile folder are not shown;
+  - **Open in \<editor\>** and **Open in the file manager** (projects, files, worktrees) do not ask the host:
+    a toast says the programs would open on the computer that runs CodeAlta (`failure("remote")`);
+  - **Exit** says to exit CodeAlta from its own window on the host; the notices of the native window
+    (`exit-requested`, `confirm-exit`, `confirm-close`, `close-tab`) are left to that window;
+  - zoom (the title bar, Ctrl+Plus/Minus/0) zooms the page itself, by the host's steps (`nextZoom`), and
+    the native window keeps its own zoom.
+  Everything else is the same code: the sessions, the files, the terminals, Settings. The settings of the
+  host (its external editor, what closing its window does, its providers) are the host's and are shown as
+  such. `window.isSecureContext` is true on the loopback address and false on a plain `http:` LAN address, so
+  some Web APIs (clipboard, notifications, microphone) are not available there until TLS. Installing an
+  update from a remote window restarts the host and ends the remote window with it.
 
 ## Commands, help and keyboard shortcuts
 

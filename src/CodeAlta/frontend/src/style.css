@@ -2128,6 +2128,8 @@ dialog.timeline-image-dialog:has(> .app-window) > .app-window > .app-window-body
 
 /* The developer instance says so beside its name, so two CodeAlta windows are told apart. */
 .window-brand-tag { flex: none; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--yellow) 60%, transparent); border-radius: 999px; color: var(--yellow); font-size: 10px; font-weight: 600; letter-spacing: .06em; line-height: 16px; text-transform: uppercase; }
+/* A remote window: a page in a browser, whose work happens on the computer that runs CodeAlta. */
+.window-brand-remote { border-color: color-mix(in srgb, var(--accent) 60%, transparent); color: var(--accent); }
 
 /* Configuration recovery: the whole window when config.toml cannot be loaded. */
 .config-recovery-shell { --titlebar-height: var(--neoastra-titlebar-height, 38px); display: grid; grid-template-rows: var(--titlebar-height) minmax(0, 1fr); height: 100vh; overflow: hidden; background: var(--bg); color: var(--text); }

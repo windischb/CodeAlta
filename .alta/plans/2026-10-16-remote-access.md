@@ -219,35 +219,48 @@ and shows the workspace with no console error.
 
 ### Phase 4 — What a remote window can and cannot do (audit, then remote mode)
 
-- [ ] Audit every `desktopShell.*`, `externalEditors.*`, `createDesktopClient` use, `window.*` native assumption,
-      `localStorage` key, and "one window" assumption in `frontend/src` (list them in this plan when found).
-      Known today:
-      - `windowChrome.tsx` (caption buttons, drag region): hidden in remote mode; the page shows a *Remote:
-        <host name>* tag beside the app name, like the **DEV** tag.
-      - `desktopShell.pickFolder` (native dialog on the host): replace with a folder browser dialog fed by
-        `DiskFolders`-style listing over RPC, or disable *Add project…* remotely in phase 1 and say why.
-      - `desktopShell.revealEntry`, `externalEditors.openFolder`, "Open in editor", "Open in terminal"
-        (`DesktopTerminalStart`): they act on the host's screen; show a notice *Opened on <host>* or hide.
-      - `desktopShell.zoom`, `hide`, `exit`: browser zoom; hide/exit hidden (exit would end the host).
-      - Clipboard, drag-and-drop of files, image paste: browser APIs; images go through `promptImages` as today
-        — check the 128 MiB inbound frame cap still holds through the socket.
-      - Notifications: Web Notifications with permission; sound as today.
-      - Speech to prompt (`SpeechRpc`): where does the microphone live? If on the host, disable remotely.
-      - Updates (`AppUpdateRpc`): show, but *Install* restarts the host and ends the remote window: warn.
-      - `alta ui activate` / UI tools: they drive the native window only; a session started from a remote
-        window that calls them sees the host's window. Document; a per-window choice is out of scope.
-      - File links (`DesktopFileLinks`, `alta:` links), `DesktopLinks` (open URL): open in the browser instead.
-- [ ] `remoteMode.ts`: one place that answers *is this window remote* and *the host's name*, read from
-      `runtimeInfo`; components use it, never `location`.
-- [ ] Two windows at once: open the native window and a remote one on the same `--dev` host; send a prompt from
-      each to the same session; rename, archive, delete, create; reminders and asks answered in one window
-      disappear in the other. Fix what double-fires or sticks; events are per subscription, state reads are
-      per window, so the expected gaps are optimistic local state (drafts, selection) — that is fine.
-- [ ] Reconnection: the socket drops (Mac sleeps, Wi-Fi changes) → the page shows **CodeAlta is not
-      responding.** as today and reloads when the host answers again; unsaved file edits block the reload as
-      today.
-- [ ] Narrow screens: the remote page on a 13" notebook at 150 % is the normal case; a phone is not a target,
-      but nothing should break at 900×650.
+**Done 2026-10-16.** Verified: `tsc`, the node tests of `remote/`, `externalEditors`, `spaces` and `WindowZoom`,
+`npm test` (1800, one browser test timed out under load and passes alone: `windowFrame.browser.test.ts`), the
+Debug build, and the live checks on `alta --dev --remote-port 2585`: in a Chromium page the **remote** tag names
+the host, there are no caption buttons and no `data-neoastra-*` attributes, **Add a project folder** opens the
+Open project window to type the path (no native dialog on the host), Ctrl+= zooms the page to 110 % and the
+title bar shows it, Ctrl+Q shows the "exit from its own window" toast; the native window (driven through
+`codealta-dev`) has its title bar and no tag. Two windows: a session created through the host's `alta`
+appeared in both (the shell's notices are broadcast to every watcher); what differs is window-local only (the
+expanded projects, the zoom).
+
+- [x] Audit of `frontend/src` (grep of `desktopShell.*`, `externalEditors`, `createDesktopClient`, `appUpdate`,
+      `speech`, `projectFiles.reveal/openExternal`, `worktrees.open*`, `navigator.clipboard`, `window.open`): the
+      native surface is small — `desktopShell.exit/hide/zoom/pickFolder/revealEntry`, the external opener
+      (`openFolder/openEntry/openWorktree`), the title bar of `windowChrome.tsx`, and the shell's notices.
+      Speech captures the microphone in the page (`getUserMedia`), so it works in a browser; the clipboard is
+      the browser's; notifications are the host's (none in the page).
+- [x] `remoteMode.ts`: `remoteWindowHost(runtimeInfo, location)` from the connection (the source of truth,
+      `viewLabel === "remote"`), and `remoteDocumentHost()` from the mark `lib/remote.js` leaves on the root
+      element (`data-codealta-remote`) for what cannot wait for the connection or must not import
+      `@neoastra/client` (the node tests resolve that package to its `.d.ts` through `tsconfig` paths: a module
+      they load must not import it — `SpaceIdentity.tsx` learned that). `App` keeps `remoteHost`.
+- [x] `windowChrome.tsx`: the title bar is attached only when the window is not remote; `WindowBrand` has the
+      **remote** tag (`.window-brand-remote`, accent color) with the host on hover.
+- [x] `desktopShell.pickFolder`: `canPickFolder` is false in a remote window (**Add a project folder** → the Open
+      project window, typed path with completion); the **Browse…** of the worktree folder and of the GitHub
+      profile folder are not shown.
+- [x] `revealEntry`/`openFolder`/`openEntry`/`openWorktree`: a remote window does not call the host; the
+      opener answers `remote` and the toast says the programs would open on the computer that runs CodeAlta
+      (`failure("remote")`, `remote/messages.ts`).
+- [x] `exit`: a toast, no call; `hide`: unreachable (the close question is the native window's). The shell's
+      notices `exit-requested`, `confirm-exit`, `confirm-close`, `close-tab` are ignored in a remote window.
+- [x] Zoom: a remote window zooms its page (`document.documentElement.style.zoom`) by the host's steps
+      (`nextZoom`); the title bar shows `remoteZoom`; the native window's zoom is untouched.
+- [x] Two windows at once: checked with a session created through `alta` of the host (both windows list it).
+      Not checked yet, for a later pass with real sessions: a prompt sent from each window to the same session,
+      an ask answered in one window, rename/archive/delete from both.
+- [x] Reconnection: a reload (and any socket close) opens a new session, as in phase 1; a dropped socket shows
+      **CodeAlta is not responding** and reloads when the host answers (the `rpc_session_closed` path).
+- [ ] Not done, left for the audit's second pass: `appUpdate.install` from a remote window (restarts the host:
+      warn first); file drag-and-drop from the browser into the composer; a CSP header for the page served over
+      HTTP (the custom scheme applies it in the window; the remote page has none); a phone-width layout.
+- [ ] Narrow screens: not checked beyond the existing 900×650 tests of the window.
 
 ### Phase 5 — Documentation and release
 
