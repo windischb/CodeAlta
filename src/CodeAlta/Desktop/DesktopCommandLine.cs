@@ -41,9 +41,11 @@ internal sealed record DesktopLaunchOptions(string DataRoot, string? CatalogRoot
     internal int? McpPort { get; init; }
 
     /// <summary>
-    /// The port the remote server listens on, 0 for a free one; null when none runs. It listens on the address of
-    /// <see cref="McpHost"/>, the loopback address when none is named.
+    /// The address the remote server listens on: <c>localhost</c> or an IP address; null for the loopback address.
     /// </summary>
+    internal string? RemoteHost { get; init; }
+
+    /// <summary>The port the remote server listens on, 0 for a free one; null for the port of this kind of instance, with the server off.</summary>
     internal int? RemotePort { get; init; }
 }
 internal sealed record OwnedDesktopRoots(string Project, string? Home, string? Instructions, string? Builtin);
@@ -62,7 +64,10 @@ internal static class DesktopCommandLine
     /// <summary>Names the port the MCP server listens on.</summary>
     internal const string McpPortOption = "--mcp-port";
 
-    /// <summary>Names the port the remote server listens on, and starts it.</summary>
+    /// <summary>Names the address the remote server listens on.</summary>
+    internal const string RemoteHostOption = "--remote-host";
+
+    /// <summary>Names the port the remote server listens on, and turns the server on.</summary>
     internal const string RemotePortOption = "--remote-port";
 
     private const string HelpText = """
@@ -97,10 +102,14 @@ internal static class DesktopCommandLine
           --mcp-port <port>      The port; 0 takes a free one.
           --mcp-host <address>   localhost or an IP address. An address other computers can
                                  reach asks for the access token that Settings shows.
-          --remote-port <port>   Prototype: serves the page of the application to a browser at
-                                 http://<address>:<port>/ with its RPC over a WebSocket, on the
-                                 address of --mcp-host. No login: whoever reaches the port has
-                                 your control of CodeAlta. 0 takes a free port.
+
+        Remote access (prototype): the page of CodeAlta in a browser, at http://127.0.0.1:2584/
+        (port 2585 with --dev), with everything the window does. Off unless a start turns it on.
+        There is no login: whoever reaches the port has your control of CodeAlta.
+          --remote-port <port>   Turns it on; 0 takes a free port.
+          --remote-host <address>
+                                 localhost or an IP address; use a private network such as
+                                 Tailscale's for another computer.
 
         Isolated roots, for tests and development. The ~/.alta profile is not used, and every
         directory is an absolute path outside .alta:
@@ -162,8 +171,8 @@ internal static class DesktopCommandLine
         options = null;
         error = "Unknown or invalid options. Run alta without options to start CodeAlta Desktop, or alta --help to list the options.";
         // Where the MCP server listens goes with any start that runs the application.
-        if (!TryTakeMcpEndpoint(ref args, out var mcpHost, out var mcpPort, out var remotePort)) return false;
-        if (mcpHost is not null || mcpPort is not null || remotePort is not null)
+        if (!TryTakeMcpEndpoint(ref args, out var mcpHost, out var mcpPort, out var remoteHost, out var remotePort)) return false;
+        if (mcpHost is not null || mcpPort is not null || remoteHost is not null || remotePort is not null)
         {
             if (!TryParse(args, directoryExists, fileExists, out options, out error)) return false;
             if (options!.ExitRunning)
@@ -173,7 +182,7 @@ internal static class DesktopCommandLine
                 return false;
             }
 
-            options = options with { McpHost = mcpHost, McpPort = mcpPort, RemotePort = remotePort };
+            options = options with { McpHost = mcpHost, McpPort = mcpPort, RemoteHost = remoteHost, RemotePort = remotePort };
             return true;
         }
 
@@ -277,14 +286,16 @@ internal static class DesktopCommandLine
         };
     }
 
-    // Takes the two MCP options and the remote port out of the arguments. False when one is given twice,
-    // without a value or with a value that names no address or no port.
-    private static bool TryTakeMcpEndpoint(ref string[] args, out string? host, out int? port, out int? remotePort)
+    // Takes the options of the MCP server and of the remote server out of the arguments. False when one is
+    // given twice, without a value or with a value that names no address or no port.
+    private static bool TryTakeMcpEndpoint(ref string[] args, out string? host, out int? port, out string? remoteHost, out int? remotePort)
     {
         host = null;
         port = null;
+        remoteHost = null;
         remotePort = null;
-        if (Array.IndexOf(args, McpHostOption) < 0 && Array.IndexOf(args, McpPortOption) < 0 && Array.IndexOf(args, RemotePortOption) < 0) return true;
+        if (Array.IndexOf(args, McpHostOption) < 0 && Array.IndexOf(args, McpPortOption) < 0
+            && Array.IndexOf(args, RemoteHostOption) < 0 && Array.IndexOf(args, RemotePortOption) < 0) return true;
         var rest = new List<string>(args.Length);
         for (var i = 0; i < args.Length; i++)
         {
@@ -297,11 +308,14 @@ internal static class DesktopCommandLine
                     port = value;
                     i++;
                     break;
+                case RemoteHostOption when remoteHost is null && i + 1 < args.Length && IsMcpHost(args[i + 1]):
+                    remoteHost = args[++i];
+                    break;
                 case RemotePortOption when remotePort is null && i + 1 < args.Length && IsPort(args[i + 1], out var value):
                     remotePort = value;
                     i++;
                     break;
-                case McpHostOption or McpPortOption or RemotePortOption:
+                case McpHostOption or McpPortOption or RemoteHostOption or RemotePortOption:
                     return false;
                 default:
                     rest.Add(args[i]);

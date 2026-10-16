@@ -83,6 +83,18 @@ const lentModules = (): Plugin => ({
   },
 });
 
+// The transport of a remote window (src/remote/remote.ts) is an entry of the build of its own at a fixed address, lib/remote.js.
+// The remote server (Desktop/Remote/DesktopRemoteServer.cs) inserts `<script type="module" src="./lib/remote.js"></script>` into
+// the entry document before the page's own module script, so the WebSocket transport exists when `@neoastra/client` looks for
+// it; the document of the window does not name it, and it is not in the import map.
+const remoteEntryFile = "lib/remote.js";
+const remoteTransport = (): Plugin => ({
+  name: "codealta:remote-transport",
+  buildStart() {
+    this.emitFile({ type: "chunk", id: fileURLToPath(new URL("./src/remote/remote.ts", import.meta.url)), fileName: remoteEntryFile });
+  },
+});
+
 export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
@@ -96,7 +108,7 @@ export default defineConfig(({ mode }) => ({
     "import.meta.env.VITE_DEMO_MODE": JSON.stringify(mode === "demo" ? "true" : "false"),
   },
   base: "./",
-  plugins: [blueprintPalette(), react(), startupScreen(), terminalFontLicense(), speechWorklet(), lentModules()],
+  plugins: [blueprintPalette(), react(), startupScreen(), terminalFontLicense(), speechWorklet(), lentModules(), remoteTransport()],
   server: { fs: { allow: ["..", fileURLToPath(new URL("../../CodeAlta.Tui/Assets/3d.flf", import.meta.url))] }, host: "127.0.0.1", strictPort: true, port: 5173 },
   build: { sourcemap: false, assetsInlineLimit: 0 },
 }));

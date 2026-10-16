@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net;
 using System.Net.WebSockets;
 using System.Text;
@@ -15,6 +14,19 @@ using XenoAtom.Logging;
 
 namespace CodeAlta.Desktop.Remote;
 
+/// <summary>What the remote server is doing.</summary>
+/// <param name="State"><c>running</c>, <c>stopped</c> (turned off) or <c>failed</c> (turned on, and not listening).</param>
+/// <param name="Enabled">Whether the server is turned on.</param>
+/// <param name="Url">The address a browser opens while it runs.</param>
+/// <param name="Error">Why it is not listening, when it failed.</param>
+/// <param name="Clients">How many remote windows are connected.</param>
+internal sealed record DesktopRemoteStatus(string State, bool Enabled, string? Url, string? Error, int Clients)
+{
+    internal const string Running = "running";
+    internal const string Stopped = "stopped";
+    internal const string Failed = "failed";
+}
+
 /// <summary>
 /// Serves the page of the application to a browser on another computer, with its RPC over a WebSocket: the
 /// same <see cref="NeoRpcHost"/> the window uses, one document session per connection.
@@ -22,9 +34,10 @@ namespace CodeAlta.Desktop.Remote;
 /// <remarks>
 /// <para>
 /// The transport handshake that NeoAstra does for a WebView is done here: the client sends <c>hello</c>, the
-/// server answers <c>hello_ack</c>, and every other frame is passed to the session as is. The browser gets the
-/// transport object <c>@neoastra/client</c> looks for (<see cref="TransportScript"/>), injected into the entry
-/// document before its module script, so the frontend runs unchanged.
+/// server answers <c>hello_ack</c>, and every other frame is passed to the session as is. The page gets the
+/// module that installs the transport object <c>@neoastra/client</c> looks for (<c>lib/remote.js</c> of the
+/// frontend build), inserted into the entry document before its own module script, so the frontend runs
+/// unchanged.
 /// </para>
 /// <para>
 /// There is no authentication yet: whoever reaches the port has the user's control of the application. The
@@ -34,17 +47,11 @@ namespace CodeAlta.Desktop.Remote;
 /// </remarks>
 internal sealed class DesktopRemoteServer : IAsyncDisposable
 {
-    /// <summary>The port of the normal instance, next to the MCP server's.</summary>
-    internal const int DefaultPort = 2584;
-
-    /// <summary>The port of the developer instance, which runs beside the normal one.</summary>
-    internal const int DeveloperPort = 2585;
-
     /// <summary>The path of the WebSocket endpoint that carries the RPC frames.</summary>
     internal const string RpcPath = "/rpc";
 
-    /// <summary>The path of the script that installs the transport in the page.</summary>
-    internal const string TransportPath = "/_remote/transport.js";
+    /// <summary>The module of the frontend build that installs the transport in the page.</summary>
+    internal const string TransportModule = "lib/remote.js";
 
     /// <summary>The label of the view every remote document session has; the page reads it to know it is remote.</summary>
     internal const string ViewLabel = "remote";
@@ -52,55 +59,157 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
     /// <summary>The largest inbound frame, the same as the window's.</summary>
     internal const int MaximumFrameBytes = 128 * 1024 * 1024;
 
+    /// <summary>How many remote windows are served at once.</summary>
+    internal const int MaximumConnections = 8;
+
     private const int MaximumJsonDepth = 32;
-    private const int MaximumConnections = 8;
     private static readonly string[] Features = ["invoke", "cancel", "events"];
 
-    private readonly string _host;
-    private readonly int _port;
+    private readonly Lock _gate = new();
+    private readonly SemaphoreSlim _transition = new(1, 1);
+    private readonly DesktopRemoteEndpoint _endpoint;
     private readonly Func<NeoRpcHost?> _rpc;
     private readonly INeoResourceProvider _assets;
     private readonly string _origin;
     private int _connections;
     private WebApplication? _application;
+    private DesktopRemoteStatus _status;
+    private bool _disposed;
 
     /// <summary>Creates the server. It does not listen until <see cref="StartAsync"/>.</summary>
-    /// <param name="host"><c>localhost</c> or an IP address.</param>
-    /// <param name="port">The port; 0 for a free one.</param>
+    /// <param name="endpoint">Where it listens.</param>
     /// <param name="rpc">The RPC host of the window; null while the application has none yet.</param>
     /// <param name="assets">The files of the page, as the window loads them.</param>
     /// <param name="origin">The origin the window's page is served from (<c>app://codealta</c>), which the asset provider answers.</param>
+    /// <param name="enabled">Whether the server is turned on.</param>
     /// <exception cref="ArgumentNullException">A required argument is null.</exception>
-    internal DesktopRemoteServer(string host, int port, Func<NeoRpcHost?> rpc, INeoResourceProvider assets, string origin)
+    internal DesktopRemoteServer(DesktopRemoteEndpoint endpoint, Func<NeoRpcHost?> rpc, INeoResourceProvider assets, string origin, bool enabled)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(host);
+        ArgumentNullException.ThrowIfNull(endpoint);
         ArgumentNullException.ThrowIfNull(rpc);
         ArgumentNullException.ThrowIfNull(assets);
         ArgumentException.ThrowIfNullOrWhiteSpace(origin);
-        _host = host;
-        _port = port;
+        _endpoint = endpoint;
         _rpc = rpc;
         _assets = assets;
         _origin = origin.TrimEnd('/');
+        _status = new DesktopRemoteStatus(DesktopRemoteStatus.Stopped, enabled, null, null, 0);
     }
 
-    /// <summary>The address the server listens at, once it does.</summary>
-    internal string? Url { get; private set; }
+    /// <summary>Gets what the server is doing.</summary>
+    internal DesktopRemoteStatus Status { get { lock (_gate) return _status; } }
 
-    /// <summary>Starts listening.</summary>
-    /// <exception cref="IOException">The port is taken.</exception>
+    /// <summary>Raised when <see cref="Status"/> changed.</summary>
+    internal event Action? Changed;
+
+    /// <summary>Starts listening when the server is turned on. A failure is kept in <see cref="Status"/>.</summary>
     internal async Task StartAsync()
+    {
+        await _transition.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed) return;
+            if (Status.Enabled) await StartCoreAsync().ConfigureAwait(false);
+        }
+        finally { _transition.Release(); }
+    }
+
+    /// <summary>Turns the server on or off, now.</summary>
+    internal async Task SetEnabledAsync(bool enabled)
+    {
+        await _transition.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed) return;
+            if (enabled)
+            {
+                Set(Status with { Enabled = true });
+                if (_application is null) await StartCoreAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                await StopCoreAsync().ConfigureAwait(false);
+                Set(new DesktopRemoteStatus(DesktopRemoteStatus.Stopped, false, null, null, 0));
+            }
+        }
+        finally { _transition.Release(); }
+    }
+
+    /// <summary>Stops listening for good.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        await _transition.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (_disposed) return;
+            _disposed = true;
+            await StopCoreAsync().ConfigureAwait(false);
+        }
+        finally { _transition.Release(); }
+    }
+
+    private async Task StartCoreAsync()
+    {
+        try
+        {
+            WebApplication application;
+            try
+            {
+                application = await ListenAsync(_endpoint.Port).ConfigureAwait(false);
+            }
+            catch (IOException) when (_endpoint.Port != 0 && !_endpoint.Chosen)
+            {
+                // The port of the application's own choice is taken, by another program or another user's CodeAlta.
+                application = await ListenAsync(0).ConfigureAwait(false);
+            }
+
+            _application = application;
+            var url = _endpoint.On(BoundPort(application)).Url;
+            Info($"The remote server listens at {url}");
+            Set(new DesktopRemoteStatus(DesktopRemoteStatus.Running, true, url, null, 0));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or NotSupportedException
+            or System.Net.Sockets.SocketException or FormatException)
+        {
+            Warn($"The remote server could not listen on {_endpoint.Host}:{_endpoint.Port}: {exception.Message}");
+            Set(new DesktopRemoteStatus(DesktopRemoteStatus.Failed, true, null, exception.Message, 0));
+        }
+    }
+
+    private async Task StopCoreAsync()
+    {
+        var application = _application;
+        _application = null;
+        if (application is null) return;
+        try
+        {
+            // The windows that are connected get a moment to be told; one that holds on does not keep the application.
+            using var patience = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await application.StopAsync(patience.Token).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is OperationCanceledException or IOException or InvalidOperationException)
+        {
+            Warn($"The remote server did not stop cleanly: {exception.Message}");
+        }
+
+        await application.DisposeAsync().ConfigureAwait(false);
+    }
+
+    // A server of its own, as the MCP server is: nothing read from the folder the application was started in,
+    // no console and no signal of the process decides where it listens or when it stops.
+    private async Task<WebApplication> ListenAsync(int port)
     {
         var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions { ApplicationName = "CodeAlta", ContentRootPath = AppContext.BaseDirectory });
         builder.WebHost.UseKestrelCore().ConfigureKestrel(kestrel =>
         {
             kestrel.AddServerHeader = false;
-            if (string.Equals(_host, "localhost", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(_endpoint.Host, "localhost", StringComparison.OrdinalIgnoreCase))
             {
-                if (_port == 0) kestrel.Listen(IPAddress.Loopback, 0);
-                else kestrel.ListenLocalhost(_port);
+                // Both loopback addresses, except for a free port, which the two would not share.
+                if (port == 0) kestrel.Listen(IPAddress.Loopback, 0);
+                else kestrel.ListenLocalhost(port);
             }
-            else kestrel.Listen(IPAddress.Parse(_host), _port);
+            else kestrel.Listen(IPAddress.Parse(_endpoint.Host), port);
         });
         builder.Services.AddSingleton<IHostLifetime, QuietLifetime>();
         var application = builder.Build();
@@ -127,30 +236,7 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
             throw;
         }
 
-        _application = application;
-        var port = application.Urls.Select(static url => Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Port : 0).FirstOrDefault(static port => port > 0);
-        var host = _host.Contains(':', StringComparison.Ordinal) ? "[" + _host + "]" : _host;
-        Url = "http://" + host + ":" + port.ToString(CultureInfo.InvariantCulture) + "/";
-        Info($"The remote server listens at {Url}");
-    }
-
-    /// <inheritdoc />
-    public async ValueTask DisposeAsync()
-    {
-        var application = _application;
-        _application = null;
-        if (application is null) return;
-        try
-        {
-            using var patience = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            await application.StopAsync(patience.Token).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (exception is OperationCanceledException or IOException or InvalidOperationException)
-        {
-            Warn($"The remote server did not stop cleanly: {exception.Message}");
-        }
-
-        await application.DisposeAsync().ConfigureAwait(false);
+        return application;
     }
 
     private async Task HandleAsync(HttpContext context)
@@ -173,18 +259,12 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
                 using var socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
                 await ServeAsync(rpc, socket, context.RequestAborted).ConfigureAwait(false);
             }
-            finally { Interlocked.Decrement(ref _connections); }
+            finally { Interlocked.Decrement(ref _connections); CountClients(); }
             return;
         }
 
         if (context.Request.Method != HttpMethods.Get && context.Request.Method != HttpMethods.Head) { context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed; return; }
-        if (path == TransportPath)
-        {
-            context.Response.ContentType = "text/javascript; charset=utf-8";
-            await context.Response.WriteAsync(TransportScript, context.RequestAborted).ConfigureAwait(false);
-            return;
-        }
-
+        if (path == "/favicon.ico") { context.Response.StatusCode = StatusCodes.Status204NoContent; return; } // The page has no icon file; browsers ask anyway.
         if (path == "/") path = "/index.html";
         var response = _assets.GetResponse(new NeoResourceRequest(new Uri(_origin + path), context.Request.Method, new Dictionary<string, string>(), null,
             path.EndsWith(".html", StringComparison.Ordinal) ? NeoResourceKind.Document : NeoResourceKind.Other, path == "/index.html", ReadOnlyMemory<byte>.Empty));
@@ -192,15 +272,25 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
         context.Response.ContentType = response.MimeType ?? "application/octet-stream";
         if (path == "/index.html")
         {
-            // The transport must exist before the module script of the page runs: a classic script in the head does.
             var document = response.FilePath is { } file ? await File.ReadAllTextAsync(file, context.RequestAborted).ConfigureAwait(false) : Encoding.UTF8.GetString(response.Bytes.Span);
-            document = document.Replace("<head>", "<head><script src=\"" + TransportPath + "\"></script>", StringComparison.Ordinal);
-            await context.Response.WriteAsync(document, context.RequestAborted).ConfigureAwait(false);
+            await context.Response.WriteAsync(WithTransport(document), context.RequestAborted).ConfigureAwait(false);
             return;
         }
 
         if (response.FilePath is { } filePath) await context.Response.SendFileAsync(filePath, context.RequestAborted).ConfigureAwait(false);
         else await context.Response.Body.WriteAsync(response.Bytes, context.RequestAborted).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The entry document with the transport module before the page's own module script: module scripts run
+    /// in the order of the document, so the transport is installed when the page connects.
+    /// </summary>
+    internal static string WithTransport(string document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        const string tag = "<script type=\"module\" src=\"./" + TransportModule + "\"></script>";
+        var place = document.IndexOf("<script type=\"module\"", StringComparison.Ordinal);
+        return place < 0 ? document.Replace("</head>", tag + "</head>", StringComparison.Ordinal) : document.Insert(place, tag);
     }
 
     /// <summary>The transport handshake, then the frames of the session, until either side closes.</summary>
@@ -223,7 +313,7 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
         var documentSessionId = Guid.NewGuid().ToString("N");
         var identity = new NeoRpcSessionIdentity(ViewLabel, documentSessionId)
         {
-            ContractHash = NeoRpcGeneratedContract.Hash, SourceOrigin = new Uri(Url ?? "http://127.0.0.1/"), IsMainFrame = true, WholeViewTrust = false,
+            ContractHash = NeoRpcGeneratedContract.Hash, SourceOrigin = new Uri(Status.Url ?? _endpoint.Url), IsMainFrame = true, WholeViewTrust = false,
             ProtocolMinor = 0, Features = [.. Features],
         };
         await using var session = rpc.OpenSession(identity, async (json, token) =>
@@ -236,6 +326,7 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
         try { await SendAsync(socket, HelloAck(documentSessionId), cancellationToken).ConfigureAwait(false); }
         finally { sender.Release(); }
         Info($"A remote window connected ({documentSessionId})");
+        CountClients();
         using var closing = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, session.Closed);
         try
         {
@@ -259,7 +350,14 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
 
         if (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
         {
-            try { await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "closed", CancellationToken.None).ConfigureAwait(false); }
+            // The close handshake: answered at once when the page closed first; otherwise the page gets the close
+            // and a moment to answer it, and a page that does not is not waited for.
+            using var patience = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            try
+            {
+                if (socket.State == WebSocketState.CloseReceived) await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "closed", patience.Token).ConfigureAwait(false);
+                else await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "closed", patience.Token).ConfigureAwait(false);
+            }
             catch (Exception exception) when (exception is WebSocketException or OperationCanceledException or ObjectDisposedException) { }
         }
 
@@ -359,42 +457,39 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// The script the page gets before its module script: the transport object <c>@neoastra/client</c> finds at
-    /// <c>Symbol.for("@neoastra/client/transport/v1")</c>, over a WebSocket to <see cref="RpcPath"/> of the page's
-    /// own origin. Frames sent before the socket is open wait for it; the socket closing is told to the page as a
-    /// host close, so the page reloads as it does when the window's session is closed.
-    /// </summary>
-    internal const string TransportScript = """
-        (() => {
-          const url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/rpc";
-          const socket = new WebSocket(url);
-          const pending = [];
-          const queued = [];
-          let handler;
-          socket.onopen = () => { for (const json of pending) socket.send(json); pending.length = 0; };
-          socket.onmessage = event => {
-            let value;
-            try { value = JSON.parse(event.data); } catch { return; }
-            if (handler) handler(value); else queued.push(value);
-          };
-          socket.onclose = () => { const close = { neoastra: 1, kind: "close", reason: "rpc_session_closed" }; if (handler) handler(close); else queued.push(close); };
-          globalThis[Symbol.for("@neoastra/client/transport/v1")] = Object.freeze({
-            metadata: Object.freeze({ handshakeTimeoutMilliseconds: 10000, maximumDiagnosticQueue: 100, maximumFrameBytes: 134217728 }),
-            send(frame) {
-              const json = JSON.stringify(frame);
-              if (socket.readyState === WebSocket.OPEN) socket.send(json);
-              else if (socket.readyState === WebSocket.CONNECTING) pending.push(json);
-              else throw { code: "connection_closed", message: "The connection to CodeAlta is closed." };
-            },
-            setReceiveHandler(next) {
-              handler = next;
-              for (const value of queued.splice(0)) next(value);
-              return () => { if (handler === next) handler = undefined; };
-            },
-          });
-        })();
-        """;
+    private static int BoundPort(WebApplication application)
+    {
+        foreach (var address in application.Urls)
+        {
+            if (Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Port > 0) return uri.Port;
+        }
+
+        throw new InvalidOperationException("The server did not report the port it listens on.");
+    }
+
+    // The windows connected, as the status says it; a change while the server stops is not one.
+    private void CountClients()
+    {
+        var clients = Math.Max(0, Volatile.Read(ref _connections));
+        lock (_gate)
+        {
+            if (_status.State != DesktopRemoteStatus.Running || _status.Clients == clients) return;
+            _status = _status with { Clients = clients };
+        }
+
+        Changed?.Invoke();
+    }
+
+    private void Set(DesktopRemoteStatus status)
+    {
+        lock (_gate)
+        {
+            if (_status == status) return;
+            _status = status;
+        }
+
+        Changed?.Invoke();
+    }
 
     private static void Info(string message)
     {
@@ -406,6 +501,8 @@ internal sealed class DesktopRemoteServer : IAsyncDisposable
         if (LogManager.IsInitialized) LogManager.GetLogger("CodeAlta.Desktop.Remote").Warn(message);
     }
 
+    // The application has its own lifetime: the server neither listens to the console nor to the signals of
+    // the process, and writes nothing when it starts.
     private sealed class QuietLifetime : IHostLifetime
     {
         public Task WaitForStartAsync(CancellationToken cancellationToken) => Task.CompletedTask;

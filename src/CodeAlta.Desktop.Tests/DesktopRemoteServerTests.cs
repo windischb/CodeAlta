@@ -10,31 +10,57 @@ namespace CodeAlta.Desktop.Tests;
 
 /// <summary>
 /// The remote server of the prototype: a document session of the window's RPC host over a WebSocket, with
-/// the transport handshake of <c>@neoastra/client</c> done by the server, and the page served with the
-/// transport script.
+/// the transport handshake of <c>@neoastra/client</c> done by the server, the page served with the transport
+/// module, and the page's own view of the server.
 /// </summary>
 [TestClass]
 public sealed class DesktopRemoteServerTests
 {
+    private const string Origin = "app://codealta";
+
     private static DesktopLaunchOptions? Parse(params string[] args)
         => DesktopCommandLine.TryParse(args, _ => false, _ => false, out var options, out _) ? options : null;
 
     [TestMethod]
-    public void CommandLine_TakesThePortOfTheRemoteServer()
+    public void CommandLine_TakesTheAddressAndThePortOfTheRemoteServer()
     {
         Assert.IsNull(Parse()!.RemotePort);
+        Assert.IsNull(Parse()!.RemoteHost);
         Assert.AreEqual(4200, Parse("--remote-port", "4200")!.RemotePort);
         Assert.AreEqual(0, Parse("--remote-port", "0")!.RemotePort);
-        var developer = Parse("--dev", "--mcp-host", "::1", "--remote-port", "4201")!;
+        Assert.AreEqual("localhost", Parse("--remote-host", "localhost")!.RemoteHost);
+        var developer = Parse("--dev", "--remote-host", "::1", "--remote-port", "4201", "--mcp-port", "4100")!;
         Assert.IsTrue(developer.Developer);
-        Assert.AreEqual(("::1", 4201), (developer.McpHost, developer.RemotePort));
-        Assert.IsNull(developer.McpPort);
-        foreach (var args in new string[][] { ["--remote-port"], ["--remote-port", "4200", "--remote-port", "4201"], ["--remote-port", "65536"], ["--remote-port", "x"], ["--exit", "--remote-port", "4200"] })
+        Assert.AreEqual(("::1", 4201, 4100), (developer.RemoteHost, developer.RemotePort, developer.McpPort));
+        Assert.IsNull(developer.McpHost);
+        foreach (var args in new string[][]
+        {
+            ["--remote-port"], ["--remote-host"], ["--remote-port", "4200", "--remote-port", "4201"], ["--remote-host", "localhost", "--remote-host", "127.0.0.1"],
+            ["--remote-port", "65536"], ["--remote-port", "x"], ["--remote-host", "example.com"], ["--exit", "--remote-port", "4200"],
+        })
         {
             Assert.IsNull(Parse(args), string.Join(' ', args));
         }
 
-        CollectionAssert.AreEqual(new[] { "--dev", "--mcp-host", "::1", "--remote-port", "4201" }, DesktopTerminalStart.Arguments(developer).ToArray());
+        CollectionAssert.AreEqual(new[] { "--dev", "--mcp-port", "4100", "--remote-host", "::1", "--remote-port", "4201" }, DesktopTerminalStart.Arguments(developer).ToArray());
+        using var output = new StringWriter();
+        Assert.AreEqual(0, DesktopCommandLine.Run(["--help"], output, TextWriter.Null, _ => throw new AssertFailedException("Native startup was entered.")));
+        foreach (var expected in new[] { "--remote-port", "--remote-host", "http://127.0.0.1:2584/", "2585" }) StringAssert.Contains(output.ToString(), expected);
+    }
+
+    [TestMethod]
+    public void Endpoint_IsTheLoopbackAddress_OnThePortOfTheInstance_AndOffUnlessAsked()
+    {
+        Assert.AreEqual(new DesktopRemoteEndpoint("127.0.0.1", 2584, false), DesktopRemoteEndpoint.For(Parse()!));
+        Assert.AreEqual(new DesktopRemoteEndpoint("127.0.0.1", 2585, false), DesktopRemoteEndpoint.For(Parse("--dev")!));
+        Assert.AreEqual(new DesktopRemoteEndpoint("localhost", 4200, true), DesktopRemoteEndpoint.For(Parse("--remote-host", "localhost", "--remote-port", "4200")!));
+        Assert.IsTrue(DesktopRemoteEndpoint.For(Parse("--remote-port", "2584")!).Chosen);
+        var root = Path.Combine(Path.GetTempPath(), "codealta-remote-" + Guid.NewGuid().ToString("N"));
+        Assert.AreEqual(new DesktopRemoteEndpoint("127.0.0.1", 0, false), DesktopRemoteEndpoint.For(Parse("--data-root", root)!));
+        Assert.AreEqual("http://127.0.0.1:2584/", new DesktopRemoteEndpoint("127.0.0.1", 2584, false).Url);
+        Assert.AreEqual("http://[::1]:4201/", new DesktopRemoteEndpoint("::1", 4201, true).Url);
+        Assert.IsTrue(new DesktopRemoteEndpoint("localhost", 1, false).IsLoopback);
+        Assert.IsFalse(new DesktopRemoteEndpoint("0.0.0.0", 1, false).IsLoopback);
     }
 
     /// <summary>
@@ -45,14 +71,13 @@ public sealed class DesktopRemoteServerTests
     public async Task RpcHost_AnswersAnInvoke_ThroughASessionOpenedWithACallback()
     {
         await using var rpc = BuildHost();
-        var sent = new List<string>();
         var answered = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var identity = new NeoRpcSessionIdentity(DesktopRemoteServer.ViewLabel, "doc-1")
         {
             ContractHash = NeoRpcGeneratedContract.Hash, SourceOrigin = new Uri("http://127.0.0.1:1/"), IsMainFrame = true,
             ProtocolMinor = 0, Features = ["invoke", "cancel", "events"],
         };
-        await using var session = rpc.OpenSession(identity, (json, _) => { lock (sent) sent.Add(json); answered.TrySetResult(json); return ValueTask.CompletedTask; });
+        await using var session = rpc.OpenSession(identity, (json, _) => { answered.TrySetResult(json); return ValueTask.CompletedTask; });
         await session.ReceiveAsync(Invoke("1", "boot.status"), CancellationToken.None);
         var result = await answered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         using var document = JsonDocument.Parse(result);
@@ -71,19 +96,21 @@ public sealed class DesktopRemoteServerTests
     public async Task Server_ServesThePageAndAnswersAnInvokeOverTheSocket()
     {
         await using var rpc = BuildHost();
-        await using var server = new DesktopRemoteServer("127.0.0.1", 0, () => rpc, new Page(), "app://codealta");
+        await using var server = new DesktopRemoteServer(new DesktopRemoteEndpoint("127.0.0.1", 0, false), () => rpc, new Page(), Origin, enabled: true);
+        var changes = new List<DesktopRemoteStatus>();
+        server.Changed += () => { lock (changes) changes.Add(server.Status); };
         await server.StartAsync();
-        Assert.IsNotNull(server.Url);
-        var url = new Uri(server.Url);
+        var status = server.Status;
+        Assert.AreEqual((DesktopRemoteStatus.Running, true, 0), (status.State, status.Enabled, status.Clients));
+        var url = new Uri(status.Url!);
 
         using var http = new HttpClient();
         var page = await http.GetStringAsync(url);
-        StringAssert.Contains(page, "<script src=\"" + DesktopRemoteServer.TransportPath + "\"></script>");
-        StringAssert.Contains(page, "<script type=\"module\"");
-        var script = await http.GetStringAsync(new Uri(url, DesktopRemoteServer.TransportPath));
-        StringAssert.Contains(script, "Symbol.for(\"@neoastra/client/transport/v1\")");
+        StringAssert.Contains(page, "<script type=\"module\" src=\"./lib/remote.js\"></script><script type=\"module\" src=\"./assets/app.js\">");
         Assert.AreEqual("body", await http.GetStringAsync(new Uri(url, "/assets/app.js")));
         Assert.AreEqual(System.Net.HttpStatusCode.NotFound, (await http.GetAsync(new Uri(url, "/missing.js"))).StatusCode);
+        Assert.AreEqual(System.Net.HttpStatusCode.NoContent, (await http.GetAsync(new Uri(url, "/favicon.ico"))).StatusCode);
+        Assert.AreEqual(System.Net.HttpStatusCode.UpgradeRequired, (await http.GetAsync(new Uri(url, DesktopRemoteServer.RpcPath))).StatusCode);
         // A page of another site must not reach the host through the browser.
         using var foreign = new HttpRequestMessage(HttpMethod.Get, url);
         foreign.Headers.Add("Origin", "https://example.com");
@@ -114,10 +141,13 @@ public sealed class DesktopRemoteServerTests
             Assert.AreEqual("in-development", root.GetProperty("value").GetProperty("state").GetString());
         }
 
+        Assert.AreEqual(1, server.Status.Clients);
         await SendAsync(socket, """{"neoastra":1,"kind":"close"}""");
         // The server ends the connection after the page's close.
         var closed = await ReceiveRawAsync(socket);
         Assert.IsTrue(closed.MessageType == WebSocketMessageType.Close || socket.State != WebSocketState.Open, socket.State.ToString());
+        await WaitUntilAsync(() => server.Status.Clients == 0);
+        lock (changes) Assert.IsTrue(changes.Any(static change => change.Clients == 1), "the status counted the window");
     }
 
     /// <summary>A hello of another protocol is refused with a close the client reads as a mismatch.</summary>
@@ -125,15 +155,70 @@ public sealed class DesktopRemoteServerTests
     public async Task Server_RefusesAnotherProtocol()
     {
         await using var rpc = BuildHost();
-        await using var server = new DesktopRemoteServer("127.0.0.1", 0, () => rpc, new Page(), "app://codealta");
+        await using var server = new DesktopRemoteServer(new DesktopRemoteEndpoint("127.0.0.1", 0, false), () => rpc, new Page(), Origin, enabled: true);
         await server.StartAsync();
-        var url = new Uri(server.Url!);
+        var url = new Uri(server.Status.Url!);
         using var socket = new ClientWebSocket();
         await socket.ConnectAsync(new Uri("ws://" + url.Host + ":" + url.Port + DesktopRemoteServer.RpcPath), CancellationToken.None);
         await SendAsync(socket, """{"neoastra":1,"kind":"hello","protocol":{"major":2,"minor":0},"features":[]}""");
         using var close = JsonDocument.Parse(await ReceiveAsync(socket));
         Assert.AreEqual("close", close.RootElement.GetProperty("kind").GetString());
         Assert.AreEqual("protocol_mismatch", close.RootElement.GetProperty("code").GetString());
+    }
+
+    /// <summary>Off, the server listens to nothing; turned on it listens, and a port that is taken is replaced unless the user named it.</summary>
+    [TestMethod]
+    public async Task Server_IsOffUntilTurnedOn_AndTakesAFreePort_WhenItsOwnIsTaken_ButNotWhenTheUserNamedIt()
+    {
+        await using var rpc = BuildHost();
+        await using var first = new DesktopRemoteServer(new DesktopRemoteEndpoint("127.0.0.1", 0, false), () => rpc, new Page(), Origin, enabled: false);
+        await first.StartAsync();
+        Assert.AreEqual((DesktopRemoteStatus.Stopped, false, (string?)null), (first.Status.State, first.Status.Enabled, first.Status.Url));
+        await first.SetEnabledAsync(true);
+        Assert.AreEqual(DesktopRemoteStatus.Running, first.Status.State);
+        var port = new Uri(first.Status.Url!).Port;
+
+        await using var second = new DesktopRemoteServer(new DesktopRemoteEndpoint("127.0.0.1", port, false), () => rpc, new Page(), Origin, enabled: true);
+        await second.StartAsync();
+        Assert.AreEqual(DesktopRemoteStatus.Running, second.Status.State);
+        Assert.AreNotEqual(port, new Uri(second.Status.Url!).Port, "a port of the application's own choice that is taken is replaced");
+
+        await using var third = new DesktopRemoteServer(new DesktopRemoteEndpoint("127.0.0.1", port, true), () => rpc, new Page(), Origin, enabled: true);
+        await third.StartAsync();
+        Assert.AreEqual((DesktopRemoteStatus.Failed, true), (third.Status.State, third.Status.Enabled));
+        Assert.IsFalse(string.IsNullOrEmpty(third.Status.Error));
+
+        await first.SetEnabledAsync(false);
+        Assert.AreEqual((DesktopRemoteStatus.Stopped, false), (first.Status.State, first.Status.Enabled));
+        using var http = new HttpClient();
+        await Assert.ThrowsExactlyAsync<HttpRequestException>(() => http.GetStringAsync("http://127.0.0.1:" + port + "/"));
+    }
+
+    /// <summary>The page's view: the status with the epoch, the switch, and a launch without a server.</summary>
+    [TestMethod]
+    public async Task Page_SeesTheServerAndTurnsItOnAndOff()
+    {
+        await using var rpc = BuildHost();
+        await using var server = new DesktopRemoteServer(new DesktopRemoteEndpoint("127.0.0.1", 0, false), () => rpc, new Page(), Origin, enabled: false);
+        var service = new RemoteHostService(server, "epoch-1");
+        Assert.AreEqual("stale_epoch", service.Status(new RemoteHostRequest("epoch-0")).Status);
+        var off = service.Status(new RemoteHostRequest("epoch-1"));
+        Assert.AreEqual(("ok", DesktopRemoteStatus.Stopped, false), (off.Status, off.State, off.Enabled));
+        var on = await service.SetEnabledAsync(new RemoteHostEnableRequest("epoch-1", true), CancellationToken.None);
+        Assert.AreEqual((DesktopRemoteStatus.Running, true, 0), (on.State, on.Enabled, on.Clients));
+        StringAssert.StartsWith(on.Url, "http://127.0.0.1:");
+        var back = await service.SetEnabledAsync(new RemoteHostEnableRequest("epoch-1", false), CancellationToken.None);
+        Assert.AreEqual((DesktopRemoteStatus.Stopped, false, (string?)null), (back.State, back.Enabled, back.Url));
+        Assert.AreEqual("unavailable", new RemoteHostService().Status(new RemoteHostRequest("epoch-1")).Status);
+    }
+
+    [TestMethod]
+    public void TransportModule_GoesBeforeThePagesOwnScript()
+    {
+        const string tag = "<script type=\"module\" src=\"./lib/remote.js\"></script>";
+        Assert.AreEqual("<head></head><body>" + tag + "<script type=\"module\" src=\"./assets/a.js\"></script></body>",
+            DesktopRemoteServer.WithTransport("<head></head><body><script type=\"module\" src=\"./assets/a.js\"></script></body>"));
+        Assert.AreEqual("<head>" + tag + "</head><body></body>", DesktopRemoteServer.WithTransport("<head></head><body></body>"));
     }
 
     private static NeoRpcHost BuildHost()
@@ -168,6 +253,12 @@ public sealed class DesktopRemoteServerTests
             message.Write(buffer, 0, result.Count);
             if (result.EndOfMessage) return (result.MessageType, Encoding.UTF8.GetString(message.ToArray()));
         }
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        for (var i = 0; i < 100 && !condition(); i++) await Task.Delay(50);
+        Assert.IsTrue(condition());
     }
 
     /// <summary>The files of a page: an entry document with a head and a module script, and one asset.</summary>

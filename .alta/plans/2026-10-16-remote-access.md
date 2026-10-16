@@ -158,25 +158,40 @@ Constraints the user set:
 
 ### Phase 1 — Listener and transport in the app
 
-- [ ] `Desktop/Remote/DesktopRemoteEndpoint.cs`: host, port, chosen, like `DesktopMcpEndpoint`; defaults
-      `127.0.0.1:2584` (`2585` for `--dev`); `--remote-port`, `--remote-host` in `DesktopCommandLine`.
-- [ ] `Desktop/Remote/DesktopRemoteServer.cs`: Kestrel; `GET /` and assets from the manifest provider with the
-      app's CSP (plus `wss:` only if the spike shows `'self'` is not enough); `GET /rpc` upgrades to a
-      WebSocket; one `NeoRpcHost.OpenSession` per socket with `ViewLabel = "remote"`, a fresh
-      `DocumentSessionId`, `SourceOrigin` = the listener's origin, `WholeViewTrust = false`; receive loop
-      → `ReceiveAsync`; `NeoRpcSendFrame` → socket send with the session's token; close → `DisposeAsync`.
-      Bounded: frame size from `NeoRpcOptions.MaximumFrameBytes`, a per-server connection cap (8), ping/pong.
-- [ ] Give the server the `NeoRpcHost` of the workspace (`rpc` at
-      [DesktopApplication.cs](src/CodeAlta/Desktop/DesktopApplication.cs#L834)) and of the configuration
-      recovery page; before the host exists, serve a "CodeAlta is starting" page.
-- [ ] `frontend/src/remote/remoteTransport.ts`: the WebSocket transport (connect, hello, send, receive handler,
-      `closed` with reason, reconnection = reload like `rpc_session_closed`); installed by a tiny `remote.ts`
-      entry that runs before `main.tsx` only when the page is not in a NeoAstra view (`isAvailable()` false and
-      `location.protocol` is `http(s):`). Vite: a second entry or a guard at the top of `main.tsx`.
-- [ ] Status API `remoteHost.status`/`setEnabled` (`Desktop/Rpc/RemoteHostRpc.cs`), modeled on `McpHostRpc.cs`:
-      `state`, `enabled`, `url`, `error`, `clients`.
-- [ ] Tests: MSTest for the endpoint policy and the socket session (open, call, event, channel, close);
-      a `*.browser.test.ts` that loads the page through the transport against a fake socket.
+**Done 2026-10-16** (branch `feature/remote-access`). Verified: `DesktopRemoteServerTests` (8) with the MCP and
+terminal-start tests, `npm test` (1797, one fixed: the browser demo stands in for `remoteHost`), the Debug build
+emits `assets/lib/remote.js`, and `alta --dev --remote-port 2585` in a Chromium page loads the transport module
+and shows the workspace with no console error.
+
+- [x] `Desktop/Remote/DesktopRemoteEndpoint.cs`: host, port, chosen, like `DesktopMcpEndpoint`; defaults
+      `127.0.0.1:2584` (`2585` for `--dev`, a free port on explicit roots); `--remote-port` (turns the server
+      on) and `--remote-host` in `DesktopCommandLine`, handed on by `DesktopTerminalStart`.
+- [x] `Desktop/Remote/DesktopRemoteServer.cs`: Kestrel of its own; `GET /` and the assets from the manifest
+      provider (no CSP header yet: the page's CSP is applied by the custom scheme only — phase 4 decides);
+      `GET /rpc` → one `NeoRpcHost.OpenSession` per socket (`ViewLabel = "remote"`, `WholeViewTrust = false`);
+      `hello`/`hello_ack` by the server; frames to `ReceiveAsync` without waiting for one another; the close
+      handshake with `CloseOutputAsync` and a 3-second patience (a page that does not answer is not waited
+      for); `Status` (`running`/`stopped`/`failed`, url, error, clients) with `Changed`; `SetEnabledAsync`;
+      a taken port of the application's choice is replaced, one the user named is not; at most 8 windows;
+      `favicon.ico` → 204. Kestrel's own ping keeps the socket alive.
+- [x] The server exists for every start that opens the window (`DesktopApplication`), on unless
+      `--remote-port` is absent; the RPC host of the workspace is given to it after `builder.Build()`. The
+      configuration-recovery page and the "starting" page: not done — before the host exists `/rpc` answers
+      503 and the page shows **CodeAlta is not responding** with **Reload**, which is enough for now.
+- [x] `frontend/src/remote/remoteTransport.ts` (`installRemoteTransport`, testable with a fake socket),
+      `remoteMode.ts` (`isRemoteWindow`, `remoteHostName`), `remote.ts` (the entry; installs only over
+      `http(s):`); Vite emits it as `lib/remote.js` (`codealta:remote-transport` plugin); the server inserts
+      `<script type="module" src="./lib/remote.js"></script>` before the page's own module script
+      (`DesktopRemoteServer.WithTransport`). A test pins the client's private symbol to `dist/index.js`.
+- [x] `remoteHost.status`/`setEnabled` (`Desktop/Rpc/RemoteHostRpc.cs`, modeled on `McpHostRpc.cs`): `state`,
+      `enabled`, `url`, `error`, `clients`; registered in both builders, unavailable on a catalog copy; the
+      switch is not kept across starts (phase 3).
+- [x] Tests: MSTest for the command line and help, the endpoint, the in-memory session, the server end to end,
+      the protocol refusal, off/on and the port fallback, the page's service, the script insertion;
+      `remoteTransport.test.ts` (8) and `remoteMode.test.ts` (2). A `*.browser.test.ts` that loads the page
+      through the transport against a fake socket: not done — the live check in the developer instance
+      stands for it until phase 4 touches the page.
+- [x] `doc/desktop.md`: **Remote access (prototype)**.
 
 ### Phase 2 — The guards that cost nothing (no authentication yet)
 

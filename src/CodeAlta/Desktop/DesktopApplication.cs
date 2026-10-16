@@ -336,21 +336,11 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             mcp = new Mcp.DesktopMcpServer(Mcp.DesktopMcpEndpoint.For(options), McpTools, options.StateRoot ?? options.CatalogRoot!,
                 DesktopCommandLine.Version, shell.McpServer, shell.SetMcpServer);
             _ = mcp.StartAsync(); // A server that cannot listen says so in Settings: the application does not wait for it.
-            if (options.RemotePort is { } remotePort)
-            {
-                // Prototype: the page of the application for a browser, with the RPC of the workspace over a WebSocket.
-                remote = new Remote.DesktopRemoteServer(options.McpHost ?? Mcp.DesktopMcpEndpoint.DefaultHost,
-                    remotePort, () => Volatile.Read(ref remoteRpc), new NeoManifestResourceProvider(assets, manifest), "app://codealta");
-                var startingRemote = remote;
-                _ = Task.Run(async () =>
-                {
-                    try { await startingRemote.StartAsync().ConfigureAwait(false); }
-                    catch (Exception exception) when (exception is IOException or InvalidOperationException or System.Net.Sockets.SocketException)
-                    {
-                        LogManager.GetLogger("CodeAlta.Desktop.Remote").Warn($"The remote server could not listen on port {remotePort}: {exception.Message}");
-                    }
-                });
-            }
+            // The remote server (prototype): the page of the application for a browser on another computer, with
+            // the RPC of the workspace over a WebSocket. Off unless the start turned it on; the page can turn it on.
+            remote = new Remote.DesktopRemoteServer(Remote.DesktopRemoteEndpoint.For(options), () => Volatile.Read(ref remoteRpc),
+                new NeoManifestResourceProvider(assets, manifest), "app://codealta", enabled: options.RemotePort is not null);
+            _ = remote.StartAsync(); // A server that cannot listen says so in its status: the application does not wait for it.
             // The installed tool becomes an application of this desktop; the page says so the first time.
             var entry = options.Developer || roots.Home is not null ? Task.FromResult(default(DesktopIntegration.DesktopEntryChange))
                 : Task.Run(() =>
@@ -824,6 +814,7 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
                     builder.AddTerminalsService(new TerminalsService(terminals, host.ProjectCatalog, epoch,
                         async (sessionId, token) => await SessionFolderAsync(host, sessionId, token).ConfigureAwait(false)));
                     builder.AddMcpHostService(new McpHostService(mcp, McpTools, epoch));
+                    builder.AddRemoteHostService(new RemoteHostService(remote, epoch));
                     builder.AddPromptImagesService(new PromptImagesService(host.WorkspaceReads, epoch));
                     builder.AddToolCallsService(new ToolCallsService(host.WorkspaceReads, host.RuntimeService.ToolOutput, epoch) { Jobs = host.RuntimeService.Jobs });
                     builder.AddComposerStatusService(new ComposerStatusService(host.ProjectCatalog, epoch, roots.Home, host.PluginRuntime)
@@ -1034,6 +1025,7 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             builder.AddProjectGitService(new ProjectGitService());
             builder.AddWorktreesService(new WorktreesService());
             builder.AddMcpHostService(new McpHostService());
+            builder.AddRemoteHostService(new RemoteHostService());
             builder.AddTerminalsService(new TerminalsService());
             builder.AddAutomationsService(new AutomationsService());
             builder.AddWorkItemsService(new WorkItemsService());

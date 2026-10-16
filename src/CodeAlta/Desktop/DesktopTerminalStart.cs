@@ -149,6 +149,12 @@ internal static class DesktopTerminalStart
             arguments.Add(port.ToString(System.Globalization.CultureInfo.InvariantCulture));
         }
 
+        if (options.RemoteHost is { } remoteHost)
+        {
+            arguments.Add(DesktopCommandLine.RemoteHostOption);
+            arguments.Add(remoteHost);
+        }
+
         if (options.RemotePort is { } remotePort)
         {
             arguments.Add(DesktopCommandLine.RemotePortOption);

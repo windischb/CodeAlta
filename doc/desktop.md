@@ -4602,6 +4602,47 @@ The sources are in `Desktop/Mcp/`, `Desktop/Rpc/McpHostRpc.cs` and `frontend/src
 - **Host API.** `mcpHost.status` and `mcpHost.setEnabled` answer `state` (`running`, `stopped`, `failed`),
   `enabled`, `url`, `token`, `error` and `tools`.
 
+## Remote access (prototype)
+
+The page of CodeAlta Desktop in a browser on another computer, with everything the window does: the
+sessions, the agents and the files stay on the computer that runs CodeAlta. Plan: `.alta/plans/2026-10-16-remote-access.md`.
+The sources are in `Desktop/Remote/`, `Desktop/Rpc/RemoteHostRpc.cs` and `frontend/src/remote/`.
+
+- **Transport.** A Kestrel server of its own (`DesktopRemoteServer`, modeled on the MCP server: nothing read
+  from the folder the application was started in, no console, no signal of the process). `GET /` serves the
+  entry document of the page with the module `lib/remote.js` inserted before the page's own module script;
+  the other paths serve the files of the asset manifest, as the window loads them from `app://codealta`.
+  `GET /rpc` is a WebSocket that carries the frames of `@neoastra/client` to one document session of the
+  window's `NeoRpcHost` (`OpenSession`, view label `remote`, `WholeViewTrust` false): the same services, the
+  same limits, the frontend unchanged. The transport handshake that NeoAstra does for a WebView is done by
+  the server: the page sends `hello`, the server answers `hello_ack` (protocol 1.0, the features `invoke`,
+  `cancel`, `events`, the runtime with the host's own platform/backend pair, the limits), every other frame
+  goes to `NeoRpcSession.ReceiveAsync` as is, and a `close` ends the session. When the host closes the session
+  the page is sent `close` with `rpc_session_closed`, and reloads as the window does. `lib/remote.js`
+  installs the transport object the client looks for at `globalThis[Symbol.for("@neoastra/client/transport/v1")]`
+  (`frontend/src/remote/remoteTransport.ts`), over a WebSocket to `/rpc` of the page's own origin; a test
+  pins that key to the client package. `frontend/src/remote/remoteMode.ts` answers whether a window is remote
+  (`viewLabel === "remote"`).
+- **Address.** Off unless a start turns it on: `--remote-port <port>` (0 for a free port) with any start
+  that opens the window; `--remote-host <address>` (`localhost` or an IP address) names the address, the
+  loopback address otherwise. The port of the instance is `2584`, `2585` for `--dev`, a free one on explicit
+  roots; a port of the application's own choice that is taken is replaced by a free one, one the user named is
+  not (the server then does not listen and its status says why). `DesktopRemoteEndpoint`, with the same
+  rules as `DesktopMcpEndpoint`.
+- **Who is answered.** There is no authentication yet: whoever reaches the port has the user's control of the
+  application (shell, files, providers). What is kept: a request whose `Host` is not the address the server
+  listens on, or whose `Origin` is a page not served from this computer, is refused (403, `DesktopMcpGuard`,
+  so a page the user visits elsewhere cannot drive the host); at most 8 remote windows at once (429); the
+  limits of the RPC host. Use it on a private network such as Tailscale's, and turn it off when not needed.
+  TLS, pairing and per-device tokens come later (see the plan).
+- **Host API.** `remoteHost.status` and `remoteHost.setEnabled` answer `state` (`running`, `stopped`,
+  `failed`), `enabled`, `url`, `error` and `clients` (how many remote windows are connected); the switch is
+  not kept across starts yet.
+- **In the browser.** The window's own parts (native caption buttons, the folder dialog, *Open in editor*,
+  *Exit*) still act on the computer that runs CodeAlta: what a remote window shows instead is the work of a
+  later phase. `window.isSecureContext` is true on the loopback address and false on a plain `http:` LAN
+  address, so some Web APIs (clipboard, notifications, microphone) are not available there until TLS.
+
 ## Commands, help and keyboard shortcuts
 
 The desktop app uses the TUI's key map. `Ctrl+P` (or the search icon on the activity rail) opens the
