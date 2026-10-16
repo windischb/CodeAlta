@@ -5,6 +5,4 @@
 .remote-host-field > span { color: var(--muted); font-size: 12px; }
 .remote-host-field input { font-family: var(--bp-typography-family-mono); font-size: 12px; }
 .remote-host-field .remote-host-reach { color: var(--bp-intent-warning-text-color, var(--yellow)); }
-.remote-host-open { display: grid; justify-items: start; gap: 8px; max-width: 720px; margin-top: 8px; }
-.remote-host-open .remote-control-qr { justify-self: start; }
-.remote-host-clients { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.remote-host-clients { display: block; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }

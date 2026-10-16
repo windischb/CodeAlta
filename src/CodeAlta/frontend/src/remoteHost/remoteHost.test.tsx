@@ -38,7 +38,7 @@ test("the page is drawn before the host answered, and says what it is for", () =
   assert.match(html, /Loading…/);
 });
 
-test("a running server shows the warning, where it listens, its address, a QR code and the connected windows", () => {
+test("a running server shows the warning, where it listens, its address and the connected windows", () => {
   const html = render(createElement(RemoteHostView, { state: state(), busy: false, onEnable: never, onBind: never, copy: never }));
   assert.match(html, /<input[^>]*type="checkbox"[^>]*checked=""/);
   assert.match(html, /Allow other computers to use this CodeAlta/);
@@ -48,7 +48,7 @@ test("a running server shows the warning, where it listens, its address, a QR co
   assert.match(html, /<option value="0\.0\.0\.0">All networks<\/option>/);
   assert.equal(html.includes("Other computers on that network can reach this CodeAlta."), false);
   assert.match(html, /value="http:\/\/127\.0\.0\.1:2584\/"/);
-  assert.match(html, /data-remote-control-qr/);
+  assert.equal(html.includes("data-remote-control-qr"), false, "notebooks have no camera: the address is typed or copied");
   assert.match(html, /Connected windows: 2/);
 
   const open = render(createElement(RemoteHostView, { state: state({ bind: "100.64.0.5", url: "http://100.64.0.5:2584/" }), busy: false, onEnable: never, onBind: never, copy: never }));
@@ -61,14 +61,14 @@ test("a server that is off, or that could not listen, shows nothing to open", ()
   assert.equal(/<input[^>]*type="checkbox"[^>]*checked=""/.test(off), false);
   assert.equal(off.includes("There is no login yet"), false, "the warning goes with the switch");
   assert.match(off, /Listen on/, "the address is chosen before the server is turned on");
-  assert.equal(off.includes("data-remote-control-qr"), false);
+  assert.equal(off.includes("Address"), false);
   assert.equal(off.includes("Connected windows"), false);
 
   const failed = render(createElement(RemoteHostView, { state: state({ state: "failed", url: null, clients: 0, error: "Only one usage of each socket address is normally permitted." }),
     busy: false, onEnable: never, onBind: never, copy: never }));
   assert.match(failed, /The remote server is not listening\./);
   assert.match(failed, /Only one usage of each socket address is normally permitted\./);
-  assert.equal(failed.includes("data-remote-control-qr"), false);
+  assert.equal(failed.includes("Connected windows"), false);
   // The switch stays on: the server is turned on, and says why it does not run.
   assert.match(failed, /<input[^>]*type="checkbox"[^>]*checked=""/);
 });

@@ -4639,8 +4639,9 @@ The sources are in `Desktop/Remote/`, `Desktop/Rpc/RemoteHostRpc.cs` and `fronte
   computers to use this CodeAlta**), the warning that there is no login while it is on, **Listen on** (this
   computer only, one network named by its interface with its IPv4 address, or all networks; anything but this
   computer says that other computers on that network can reach CodeAlta), why the server does not listen when
-  it failed, and while it runs the address with a copy button, a QR code to open it on another device, and how
-  many remote windows are connected. The switch and the address are kept in `preferences.json` of the
+  it failed, and while it runs the address with a copy button and how many remote windows are connected (no QR
+  code: the other computers are notebooks, which type or paste the address; one may come back with pairing, for
+  a tablet that scans the pairing code). The switch and the address are kept in `preferences.json` of the
   application data directory (`"remoteAccess": true`, `"remoteHost": "<address>"`; off and the loopback address
   are not written), so the developer instance has its own; `--remote-port` turns the server on for one start,
   `--remote-host` names the address for one start, and the preferences hold otherwise. A change of address

@@ -26,6 +26,5 @@ export const remoteHostMessages = {
     "Andere Rechner in diesem Netz können dieses CodeAlta erreichen.", "そのネットワーク上の他のコンピューターからこの CodeAlta に到達できます。", "该网络上的其他电脑可以访问此 CodeAlta。"],
   "The remote server is not listening.": ["El servidor remoto no está escuchando.", "Le serveur distant n’écoute pas.", "Der Remote-Server lauscht nicht.", "リモートサーバーは待ち受けていません。", "远程服务器未在监听。"],
   // What a browser needs.
-  "Open on another device": ["Abrir en otro dispositivo", "Ouvrir sur un autre appareil", "Auf einem anderen Gerät öffnen", "別のデバイスで開く", "在其他设备上打开"],
   "Connected windows: {count}": ["Ventanas conectadas: {count}", "Fenêtres connectées : {count}", "Verbundene Fenster: {count}", "接続中のウィンドウ: {count}", "已连接的窗口：{count}"],
 } as const;

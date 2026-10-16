@@ -3,7 +3,6 @@ import { Button, Callout, HTMLSelect, InputGroup, Switch } from "@blueprintjs/co
 import { remoteHost } from "#neoastra";
 import { AppIcon } from "../AppIcon";
 import type { MessageKey } from "../localization";
-import { RemoteLinkQr } from "../RemoteLinkQr";
 import { SettingsPage, SettingsUnavailable, useSettingsEditor } from "../SettingsPage";
 import { useShellLanguage } from "../shellLanguage";
 import { bindChoices, bindLabel, bindWarning, type RemoteHostState } from "./remoteHost";
@@ -53,10 +52,7 @@ export function RemoteHostView({ state, busy, onEnable, onBind, copy }: {
       {t("The remote server is not listening.")}{state.error && <div className="config-editor-diagnostic">{state.error}</div>}</Callout>}
     {running && <>
       <CopyField label="Address" copyLabel="Copy address" value={state.url!} copy={copy} />
-      <div className="remote-host-open">
-        <RemoteLinkQr url={state.url!} label={t("Open on another device")} />
-        <span className="remote-host-clients">{t("Connected windows: {count}", { count: state.clients })}</span>
-      </div>
+      <span className="remote-host-clients">{t("Connected windows: {count}", { count: state.clients })}</span>
     </>}
   </>;
 }

@@ -214,7 +214,9 @@ and shows the workspace with no console error.
       this CodeAlta**), the warning while it is on (no login; a private network such as Tailscale; turn it off
       when not needed), **Listen on** (the bind choice of phase 2: this computer only, each network by the name
       of its interface, all networks — with a note when other computers can reach it), why the server failed,
-      the address with a copy button, a QR code (`RemoteLinkQr`), **Connected windows: n**.
+      the address with a copy button, **Connected windows: n**. The QR code of the first version was removed
+      the same day: the other computers are notebooks without a camera (the plan says a phone is not a target);
+      it comes back with pairing, if a tablet is to scan the pairing code and the fingerprint.
 - [x] Preferences: `remoteAccess` (bool) and `remoteHost` (address) in `preferences.json`
       (`DesktopPreferences`, `DesktopShell.SetRemoteAccess/SetRemoteHost`); off and the loopback address are
       not written. `DesktopRemoteEndpoint.For(options, preferredHost)`: the command line first, then the
