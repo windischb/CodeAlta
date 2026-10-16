@@ -39,6 +39,12 @@ internal sealed record DesktopLaunchOptions(string DataRoot, string? CatalogRoot
 
     /// <summary>The port the MCP server listens on, 0 for a free one; null for the port of this kind of instance.</summary>
     internal int? McpPort { get; init; }
+
+    /// <summary>
+    /// The port the remote server listens on, 0 for a free one; null when none runs. It listens on the address of
+    /// <see cref="McpHost"/>, the loopback address when none is named.
+    /// </summary>
+    internal int? RemotePort { get; init; }
 }
 internal sealed record OwnedDesktopRoots(string Project, string? Home, string? Instructions, string? Builtin);
 
@@ -55,6 +61,9 @@ internal static class DesktopCommandLine
 
     /// <summary>Names the port the MCP server listens on.</summary>
     internal const string McpPortOption = "--mcp-port";
+
+    /// <summary>Names the port the remote server listens on, and starts it.</summary>
+    internal const string RemotePortOption = "--remote-port";
 
     private const string HelpText = """
         CodeAlta Desktop
@@ -88,6 +97,10 @@ internal static class DesktopCommandLine
           --mcp-port <port>      The port; 0 takes a free one.
           --mcp-host <address>   localhost or an IP address. An address other computers can
                                  reach asks for the access token that Settings shows.
+          --remote-port <port>   Prototype: serves the page of the application to a browser at
+                                 http://<address>:<port>/ with its RPC over a WebSocket, on the
+                                 address of --mcp-host. No login: whoever reaches the port has
+                                 your control of CodeAlta. 0 takes a free port.
 
         Isolated roots, for tests and development. The ~/.alta profile is not used, and every
         directory is an absolute path outside .alta:
@@ -149,8 +162,8 @@ internal static class DesktopCommandLine
         options = null;
         error = "Unknown or invalid options. Run alta without options to start CodeAlta Desktop, or alta --help to list the options.";
         // Where the MCP server listens goes with any start that runs the application.
-        if (!TryTakeMcpEndpoint(ref args, out var mcpHost, out var mcpPort)) return false;
-        if (mcpHost is not null || mcpPort is not null)
+        if (!TryTakeMcpEndpoint(ref args, out var mcpHost, out var mcpPort, out var remotePort)) return false;
+        if (mcpHost is not null || mcpPort is not null || remotePort is not null)
         {
             if (!TryParse(args, directoryExists, fileExists, out options, out error)) return false;
             if (options!.ExitRunning)
@@ -160,7 +173,7 @@ internal static class DesktopCommandLine
                 return false;
             }
 
-            options = options with { McpHost = mcpHost, McpPort = mcpPort };
+            options = options with { McpHost = mcpHost, McpPort = mcpPort, RemotePort = remotePort };
             return true;
         }
 
@@ -264,13 +277,14 @@ internal static class DesktopCommandLine
         };
     }
 
-    // Takes the two MCP options out of the arguments. False when one is given twice, without a value or with
-    // a value that names no address or no port.
-    private static bool TryTakeMcpEndpoint(ref string[] args, out string? host, out int? port)
+    // Takes the two MCP options and the remote port out of the arguments. False when one is given twice,
+    // without a value or with a value that names no address or no port.
+    private static bool TryTakeMcpEndpoint(ref string[] args, out string? host, out int? port, out int? remotePort)
     {
         host = null;
         port = null;
-        if (Array.IndexOf(args, McpHostOption) < 0 && Array.IndexOf(args, McpPortOption) < 0) return true;
+        remotePort = null;
+        if (Array.IndexOf(args, McpHostOption) < 0 && Array.IndexOf(args, McpPortOption) < 0 && Array.IndexOf(args, RemotePortOption) < 0) return true;
         var rest = new List<string>(args.Length);
         for (var i = 0; i < args.Length; i++)
         {
@@ -279,12 +293,15 @@ internal static class DesktopCommandLine
                 case McpHostOption when host is null && i + 1 < args.Length && IsMcpHost(args[i + 1]):
                     host = args[++i];
                     break;
-                case McpPortOption when port is null && i + 1 < args.Length
-                    && int.TryParse(args[i + 1], NumberStyles.None, CultureInfo.InvariantCulture, out var value) && value <= IPEndPoint.MaxPort:
+                case McpPortOption when port is null && i + 1 < args.Length && IsPort(args[i + 1], out var value):
                     port = value;
                     i++;
                     break;
-                case McpHostOption or McpPortOption:
+                case RemotePortOption when remotePort is null && i + 1 < args.Length && IsPort(args[i + 1], out var value):
+                    remotePort = value;
+                    i++;
+                    break;
+                case McpHostOption or McpPortOption or RemotePortOption:
                     return false;
                 default:
                     rest.Add(args[i]);
@@ -295,6 +312,9 @@ internal static class DesktopCommandLine
         args = [.. rest];
         return true;
     }
+
+    private static bool IsPort(string text, out int port)
+        => int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out port) && port <= IPEndPoint.MaxPort;
 
     /// <summary>Whether <paramref name="host"/> names an address a server can listen on: <c>localhost</c> or an IP address.</summary>
     internal static bool IsMcpHost(string? host) =>

@@ -1,0 +1,295 @@
+---
+title: Remote access to a running CodeAlta from another computer
+status: in-progress
+created: 2026-10-16
+summary: Lets the CodeAlta that runs on one computer (the Mac, for iOS work) be used from a browser on another computer, through an optional listener inside the running application, without authentication for now (loopback or a private network such as Tailscale; pairing, tokens and TLS come later); the same program, no separate server process; a headless start and the desktop app as a client come later.
+---
+
+# Remote access to a running CodeAlta
+
+## Why
+
+The user works on three computers (an x64 notebook, an ARM64 notebook, a MacBook that iOS needs). Each runs
+its own CodeAlta, so the user has to remember on which computer a session runs, and nothing can be copied
+between them. The wish: sit at one computer and use the CodeAlta of another one, with its sessions, its
+agents and its files.
+
+Two ways were weighed: run only the *agent* (the `claude` process) on the Mac through SSH, or run the whole
+CodeAlta on the Mac and use it from elsewhere. The second was chosen:
+
+- it works for every provider: an API provider (OpenAI, Anthropic, Mistral…) runs its tools (shell, files)
+  in the CodeAlta process, so the process has to be on the Mac anyway;
+- the Mac runs a full CodeAlta already, and the user wants to keep that;
+- the files, the git state, the transcripts and the provider logins stay where the sessions run.
+
+Constraints the user set:
+
+- **One program, no separate server process.** The application must be running for a remote client to
+  connect; the listener lives inside the running `alta`. No daemon to install, start or stop.
+- Installed and managed from the ordinary application: a switch in Settings, not a second product.
+- A headless start (`alta --headless`) may come later, as the same program without a window, for a user who
+  wants it. It is not part of the first delivery.
+
+## What exists (evidence)
+
+- **A Kestrel server already runs inside the app**: the MCP server
+  ([DesktopMcpServer.cs](src/CodeAlta/Desktop/Mcp/DesktopMcpServer.cs), [DesktopMcpEndpoint.cs](src/CodeAlta/Desktop/Mcp/DesktopMcpEndpoint.cs)),
+  with `ModelContextProtocol.AspNetCore`, loopback by default, a `Host`/`Origin` check, an access token when
+  other computers can reach it (`mcp_token.txt`), a switch and status in Settings (`frontend/src/mcpHost/`),
+  `mcpServer` in `preferences.json`. The pattern (endpoint record, status record, `StartAsync`/`StopAsync`,
+  `remember`) is the model for the remote listener. See `doc/desktop.md`, "MCP server".
+- **The RPC host is transport-neutral**: `NeoRpcHost.OpenSession(NeoRpcSessionIdentity, NeoRpcSendFrame)`
+  opens a document session with a send callback of the caller's, and `NeoRpcSession.ReceiveAsync(json)` feeds it
+  frames (NeoAstra 1.3.1, `NeoAstra.xml`). The window's `NeoRpcViewBinding.Bind` is one user of that API; a
+  WebSocket connection can be another, on the **same** `NeoRpcHost` that `builder.Build()` returns in
+  [DesktopApplication.cs](src/CodeAlta/Desktop/DesktopApplication.cs#L834): the same 50 services, the same limits.
+- **The frontend's transport is one private object**: `@neoastra/client` finds it at
+  `globalThis[Symbol.for("@neoastra/client/transport/v1")]` (`dist/index.js`), and the generated bindings
+  (`obj/neoastra/neoastra.ts`) only use `invoke`/`subscribe`/`invokeChannel` of the package. A page that
+  installs a WebSocket transport under that key before the app module loads runs the unchanged frontend.
+  The handshake (`hello`/`hello_ack`, the `close` and `diagnostic` kinds) is the package's; `runtimeInfo.backend`
+  is `webview2 | wkwebview | webkitgtk` today.
+- **The window is assumed to be one**: `owned` is `mutation.epoch === status.hostEpoch`
+  ([main.tsx](src/CodeAlta/frontend/src/main.tsx#L2044)); the epoch is per host start, so every RPC session
+  of the host is "owned". `hostLiveness.ts` pings every 10 s; `rpc_session_closed` reloads the page.
+  `windowChrome.tsx` uses NeoAstra's `createDesktopClient` (native caption buttons);
+  `desktopShell` has `pickFolder`, `revealEntry`, `zoom`, `hide`, `exit`; `externalEditors.openFolder`,
+  terminals and canvases are RPC channels (fine over a socket). The UI tools (`alta ui activate`,
+  [DesktopMcpServer.cs](src/CodeAlta/Desktop/Mcp/DesktopMcpServer.cs)) drive *the* window.
+- **CSP** of the app page: `connect-src 'self'` (`neoastra.json`). A page served from the listener's origin
+  with `wss:` to the same origin stays within `'self'`.
+- **Remote Control** (`doc/desktop.md` "Running sessions") is Claude Code's own link to claude.ai, per
+  session; unrelated to this, and not a substitute.
+- NeoAstra runs on Windows, macOS and Linux (six RIDs, `doc/desktop.md` "Platforms"), so the Mac runs the
+  desktop app, not only the TUI.
+
+## Decisions
+
+1. **Host in the running app.** `Desktop/Remote/DesktopRemoteServer` is a second Kestrel server (or a second
+   endpoint of the MCP server's; the spike decides), started by a switch in Settings, stopped with it or with the
+   app. Port of its own (`2584`, `2585` for `--dev`, a free one on explicit roots), `--remote-port`/`--remote-host`
+   like the MCP options.
+2. **Same RPC, over WebSocket.** The listener serves the built frontend (the manifest assets the window loads,
+   `NeoManifestResourceProvider`) over HTTPS and one WebSocket endpoint `/rpc` that is one `NeoRpcHost` session
+   per connection: the frames of `@neoastra/client`, unchanged. No second API.
+3. **Browser client first.** The other computers open `https://<mac>:2584/` in a browser (or install it as a
+   PWA). A "Connect to another CodeAlta" mode of the desktop app is a later phase: it is the same page
+   loaded from that address in a view of its own, so phase 1 makes it possible without doing it.
+4. **Off by default; no authentication for now.** Nothing listens until the user turns it on. The
+   prototype has no login, no pairing and no TLS: whoever reaches the port has the user's control of the
+   computer (shell, files, providers). What keeps that acceptable while it lasts:
+   - the listener binds to the loopback address unless the user names another one, as the MCP server does
+     (`--remote-host`, later the bind choice in Settings); the Settings page says in plain words what an open
+     address means;
+   - the recommended network is a private one such as Tailscale (encrypted, only the user's own devices);
+     a port open on a LAN or the Internet is the user's decision and is warned about;
+   - the cheap checks of the MCP server are kept: `Host` must be an address the server listens on, `Origin`
+     of the upgrade must be the listener's own origin (so a web page the user visits elsewhere cannot drive
+     the host), rate limits of `NeoRpcOptions`, a connection cap, a log entry per connection.
+   Authentication (pairing, per-device tokens, TLS) is designed once the prototype has shown the feature is
+   worth it; the sketch is kept under "Later" so nothing in phase 1–4 makes it harder.
+5. **Every client is a full window of the same user.** No viewer role in phase 1: the host already serves one
+   RPC session per document and events per subscription, so two windows see the same host. What breaks with two
+   windows is found by an audit (phase 4), not assumed.
+   - **Nothing is "synchronized"** between the windows: the state lives in the host, each window reads it and
+     subscribes to its changes, as a reloaded window does today. Only window-local state stays local (open
+     tabs, drafts, theme, zoom), on purpose.
+   - **A remote connection is a window of one host, not an attachment to single sessions.** The remote client
+     shows the whole CodeAlta of that host: its projects, sessions, spaces and settings. Three forms were
+     weighed: (A) a browser tab per host — the prototype; (B) the desktop app as a client, the same page of a
+     host loaded in a view of its own, reached through the **space switcher** ("MacBook" beside "Work" and
+     "Personal": the window shows one space at a time, and one host at a time is the same rule); (C) one
+     client that lists the sessions of several hosts together. A is now, B is the next step, **C is
+     rejected**: the frontend is built around one host and one epoch, and every service call would need a
+     host context.
+   - **A remote host is not a space of the catalog.** A space is a group of projects inside one catalog,
+     a session belongs to one for life and agents are told it; a remote host is a connection the window
+     knows (name, address, later a token), kept in the desktop preferences. No `alta space` entry, no
+     journal field, no **Move to space… → MacBook** (that would copy files between computers: C again).
+6. **The frontend learns one thing: "I am remote."** `runtimeInfo.backend === "remote"` (or a flag the
+   transport sets) hides or replaces what only the native window can do; everything else is the same code.
+7. **Headless is the same binary**, later: `alta --headless` runs the host and the listener without a window;
+   `--exit` and the tray icon end it. Not in this plan's checklist beyond the note.
+
+## Phases
+
+### Phase 0 — Spike: prove the transport (1–2 days, throwaway allowed)
+
+- [x] In `CodeAlta.Desktop.Tests`, open a session with `NeoRpcHost.OpenSession` on a host built with
+      `BootService` only, pump frames through an in-memory pair, and get `boot.status` back
+      (`DesktopRemoteServerTests.RpcHost_AnswersAnInvoke_ThroughASessionOpenedWithACallback`). The
+      identity that works: `ViewLabel`, `DocumentSessionId`, `ContractHash = NeoRpcGeneratedContract.Hash`,
+      `SourceOrigin` of the listener, `IsMainFrame = true`, `WholeViewTrust = false`, `ProtocolMinor = 0`,
+      `Features = ["invoke", "cancel", "events"]`. `NeoRpcSendFrame` returns a `ValueTask`. An invoke's
+      `ReceiveAsync` completes with the result: frames are passed on without waiting for one another.
+- [x] The page with the transport, served by a Kestrel server of its own
+      (`Desktop/Remote/DesktopRemoteServer.cs`, started by `--remote-port <port>` on the address of
+      `--mcp-host`): `GET /` is the entry document of the manifest assets with
+      `<script src="/_remote/transport.js">` inserted after `<head>` (a classic script runs before the
+      module script), `GET /rpc` the WebSocket. **Done 2026-10-16:** `alta --dev --remote-port 2585` and
+      `http://127.0.0.1:2585/` in a Chromium page show the workspace of the developer instance — DEV tag,
+      the project, its two sessions and its chat in the Explorer, the composer, the toasts — and a reload
+      opens a new session (log: connected, disconnected, connected). Console: only `favicon.ico` 404.
+      Tests: `Server_ServesThePageAndAnswersAnInvokeOverTheSocket` (page, script, asset, 404, foreign
+      `Origin` → 403, hello/hello_ack, invoke, close handshake), `Server_RefusesAnotherProtocol`.
+- [x] **NeoAstra is not changed for the prototype.** Confirmed by the spike. Everything needed is public API or CodeAlta's own code:
+      - host: `NeoRpcHost.OpenSession(identity, send)` and `NeoRpcSession.ReceiveAsync(json)`; the transport
+        handshake that `NeoAstra.Core` does for a WebView is done by our server instead: the client sends
+        `{neoastra:1, kind:"hello", protocol:{major:1, minor:0}, features:[…]}`, the server answers `hello_ack`
+        with `protocol`, `features` (`invoke`, `cancel`, `events`), `runtime` and `limits`; every other kind
+        (`invoke`, `subscribe`, `cancel`, `channel_ack`, …) is passed to `ReceiveAsync` as is; a `close`
+        frame ends the session; `kind:"close"` with a reason is sent back when the host closes it.
+      - browser: an object under `globalThis[Symbol.for("@neoastra/client/transport/v1")]` with `metadata`
+        (`handshakeTimeoutMilliseconds`, `maximumDiagnosticQueue`, `maximumFrameBytes`), `send(frame)` and
+        `setReceiveHandler(fn)` returning an unregister function; `discover()` checks nothing else.
+      - `parseRuntimeInfo` accepts only a true `platform`/`backend` pair (`macos`/`wkwebview`, `windows`/
+        `webview2`, `linux`/`webkitgtk`): the server reports the host's own pair. "This window is remote" is
+        `viewLabel === "remote"`, which the server sets; no new `backend` value is needed.
+      - the symbol is private: a test reads the key from `dist/index.js` and fails when a client update
+        renames it. A public `connect({ transport })` in NeoAstra is asked for only once the prototype has
+        shown that the whole thing is worth it (see "Later").
+- [x] Decided: **two** Kestrel applications. The MCP server keeps its "no browser pages" guard and its
+      own port; the remote server has `2584`/`2585`, reuses `DesktopMcpGuard.Check` for `Host`/`Origin`
+      and the quiet lifetime, and nothing else of the MCP server's.
+- Seen in the spike, for phase 4: `window.isSecureContext` is true on `127.0.0.1` (a loopback origin is
+  secure without TLS); over a LAN address it is not. The native caption buttons of `windowChrome.tsx` are
+  not shown in the browser (nothing broke). The page asks for `/favicon.ico`, which the manifest does not
+  have: serve the icon or ignore.
+
+### Phase 1 — Listener and transport in the app
+
+- [ ] `Desktop/Remote/DesktopRemoteEndpoint.cs`: host, port, chosen, like `DesktopMcpEndpoint`; defaults
+      `127.0.0.1:2584` (`2585` for `--dev`); `--remote-port`, `--remote-host` in `DesktopCommandLine`.
+- [ ] `Desktop/Remote/DesktopRemoteServer.cs`: Kestrel; `GET /` and assets from the manifest provider with the
+      app's CSP (plus `wss:` only if the spike shows `'self'` is not enough); `GET /rpc` upgrades to a
+      WebSocket; one `NeoRpcHost.OpenSession` per socket with `ViewLabel = "remote"`, a fresh
+      `DocumentSessionId`, `SourceOrigin` = the listener's origin, `WholeViewTrust = false`; receive loop
+      → `ReceiveAsync`; `NeoRpcSendFrame` → socket send with the session's token; close → `DisposeAsync`.
+      Bounded: frame size from `NeoRpcOptions.MaximumFrameBytes`, a per-server connection cap (8), ping/pong.
+- [ ] Give the server the `NeoRpcHost` of the workspace (`rpc` at
+      [DesktopApplication.cs](src/CodeAlta/Desktop/DesktopApplication.cs#L834)) and of the configuration
+      recovery page; before the host exists, serve a "CodeAlta is starting" page.
+- [ ] `frontend/src/remote/remoteTransport.ts`: the WebSocket transport (connect, hello, send, receive handler,
+      `closed` with reason, reconnection = reload like `rpc_session_closed`); installed by a tiny `remote.ts`
+      entry that runs before `main.tsx` only when the page is not in a NeoAstra view (`isAvailable()` false and
+      `location.protocol` is `http(s):`). Vite: a second entry or a guard at the top of `main.tsx`.
+- [ ] Status API `remoteHost.status`/`setEnabled` (`Desktop/Rpc/RemoteHostRpc.cs`), modeled on `McpHostRpc.cs`:
+      `state`, `enabled`, `url`, `error`, `clients`.
+- [ ] Tests: MSTest for the endpoint policy and the socket session (open, call, event, channel, close);
+      a `*.browser.test.ts` that loads the page through the transport against a fake socket.
+
+### Phase 2 — The guards that cost nothing (no authentication yet)
+
+- [ ] **Bind address**: loopback unless named; `--remote-host <address>` as `--mcp-host`; later a choice in
+      Settings — *This computer only* (loopback), *One network* (a list of the interfaces with their addresses;
+      Tailscale's `100.x` shows up here), *All networks*. Anything but loopback shows the warning.
+- [ ] **Checks the MCP server already does**: `Host` must be an address the server listens on; `Origin` of the
+      upgrade must be the listener's own origin; no CORS. Rate limits from `NeoRpcOptions`; a connection cap (8).
+- [ ] **Logging**: `remote_connected` (address, user agent), `remote_refused` (why), `remote_closed` in
+      Application Logs.
+- [ ] Notes in `doc/desktop.md`: there is no login; whoever reaches the port has the user's control of the
+      computer; use it on a private network (Tailscale) only; turn it off when not needed (the preference is
+      kept across restarts and updates, as the user set it).
+- [ ] Tests: Host/Origin refusal, connection cap, loopback default, a named address.
+
+### Phase 3 — Settings page "Remote access"
+
+- [ ] `frontend/src/remoteHost/RemoteHostSettings.tsx` + `.css` + tests, in the group of **CodeAlta MCP server**:
+      the switch (**Allow other computers to use this CodeAlta**), state and why it failed, the bind-address
+      choice with the warning, the address with a QR code (`uqr`, as `RemoteLinkQr` does), the connected
+      clients (address, since when).
+- [ ] Preferences: `remoteAccess` (`enabled`, `bind`, `port` when chosen) in `preferences.json`
+      (`DesktopPreferences.cs`), off is the default and not written.
+- [ ] Localization: `localization.ts` entries for every string.
+
+### Phase 4 — What a remote window can and cannot do (audit, then remote mode)
+
+- [ ] Audit every `desktopShell.*`, `externalEditors.*`, `createDesktopClient` use, `window.*` native assumption,
+      `localStorage` key, and "one window" assumption in `frontend/src` (list them in this plan when found).
+      Known today:
+      - `windowChrome.tsx` (caption buttons, drag region): hidden in remote mode; the page shows a *Remote:
+        <host name>* tag beside the app name, like the **DEV** tag.
+      - `desktopShell.pickFolder` (native dialog on the host): replace with a folder browser dialog fed by
+        `DiskFolders`-style listing over RPC, or disable *Add project…* remotely in phase 1 and say why.
+      - `desktopShell.revealEntry`, `externalEditors.openFolder`, "Open in editor", "Open in terminal"
+        (`DesktopTerminalStart`): they act on the host's screen; show a notice *Opened on <host>* or hide.
+      - `desktopShell.zoom`, `hide`, `exit`: browser zoom; hide/exit hidden (exit would end the host).
+      - Clipboard, drag-and-drop of files, image paste: browser APIs; images go through `promptImages` as today
+        — check the 128 MiB inbound frame cap still holds through the socket.
+      - Notifications: Web Notifications with permission; sound as today.
+      - Speech to prompt (`SpeechRpc`): where does the microphone live? If on the host, disable remotely.
+      - Updates (`AppUpdateRpc`): show, but *Install* restarts the host and ends the remote window: warn.
+      - `alta ui activate` / UI tools: they drive the native window only; a session started from a remote
+        window that calls them sees the host's window. Document; a per-window choice is out of scope.
+      - File links (`DesktopFileLinks`, `alta:` links), `DesktopLinks` (open URL): open in the browser instead.
+- [ ] `remoteMode.ts`: one place that answers *is this window remote* and *the host's name*, read from
+      `runtimeInfo`; components use it, never `location`.
+- [ ] Two windows at once: open the native window and a remote one on the same `--dev` host; send a prompt from
+      each to the same session; rename, archive, delete, create; reminders and asks answered in one window
+      disappear in the other. Fix what double-fires or sticks; events are per subscription, state reads are
+      per window, so the expected gaps are optimistic local state (drafts, selection) — that is fine.
+- [ ] Reconnection: the socket drops (Mac sleeps, Wi-Fi changes) → the page shows **CodeAlta is not
+      responding.** as today and reloads when the host answers again; unsaved file edits block the reload as
+      today.
+- [ ] Narrow screens: the remote page on a 13" notebook at 150 % is the normal case; a phone is not a target,
+      but nothing should break at 900×650.
+
+### Phase 5 — Documentation and release
+
+- [ ] `doc/desktop.md`: a **Remote access** section (transport, address, pairing, devices, what a remote window
+      cannot do, security notes), and the **Settings** list; `doc/development-guide.md` for the second server;
+      `site/` user page with screenshots (`doc/site-screenshots.md` sizes); `readme.md` one line.
+- [ ] `AGENTS.md`: how to test with `--dev` (port 2585) from a browser on this computer.
+- [ ] Both themes, narrow window, screenshots of the Settings page and of a remote window.
+
+### Later (not in this plan's checklist)
+
+- **Authentication**, designed once the prototype has proven the feature. The sketch, so that phases 1–4
+  leave room for it: TLS with a certificate the app generates once (`remote_cert.pfx`, DPAPI/0600, SHA-256
+  fingerprint shown in Settings and in the QR code; plain HTTP on loopback only). A self-signed certificate
+  is enough: once the browser's exception is accepted, the page is a secure context (clipboard, notifications,
+  microphone work) and `wss:` to the same host and port works in Chromium and Safari; Firefox needs the
+  exception on that exact host and port, and a PWA install is not offered without a valid certificate.
+  Rules so that Safari and iOS accept it at all: validity at most 825 days (renewed by CodeAlta before it
+  ends; the fingerprint then changes), `subjectAltName` with every name and address the host is reached by
+  (hostname, `.local`, the Tailscale `100.x` address and `<machine>.<tailnet>.ts.net`), EKU `serverAuth`,
+  RSA 2048 or ECDSA P-256. Option beside it: a certificate the user drops in (`remote_cert.pem` +
+  key), such as the Let's Encrypt one `tailscale cert <machine>.<tailnet>.ts.net` gives, which removes the
+  warning and allows the PWA install. Then pairing of each device with
+  a 6-digit code valid 2 minutes (`POST /pair` → a per-device token of 32 random bytes kept in the browser's
+  storage, hashed in `remote_devices.json` on the host with name, created, last seen, user agent; 5 failed
+  codes close pairing); every `/rpc` upgrade carries the token (`Sec-WebSocket-Protocol` or an origin-scoped
+  cookie), else 401; a device list with **Revoke** in Settings; `remote_paired`/`remote_revoked` log entries,
+  never the token. Where it plugs in: the upgrade handler of `DesktopRemoteServer` (one check before
+  `OpenSession`), one page before the app loads (the pairing form), one section of the Settings page.
+- `alta --headless`: host + listener without a window, tray icon or `--exit` to end; a user who wants the
+  server-like setup gets it from the same program.
+- The desktop app as a client (form B): the remote hosts the window knows are entries of the **space
+  switcher** ("MacBook", with the icon and color the user gives them, kept in `preferences.json`, not in the
+  catalog); choosing one loads that host's page in a view of its own (the device token kept by that view's
+  storage) and the switcher leads back. **Settings → Remote hosts** adds, renames and removes them.
+- A public `connect({ transport })` and a `backend: "remote"` value in NeoAstra (`../NeoAstra`, xoofx), once
+  the prototype has proven the feature; until then CodeAlta uses the private symbol and tests its name.
+- A viewer role (read-only pairing) if sharing a screen with a colleague becomes a wish.
+- Discovery on the LAN (mDNS) — the QR code and Tailscale names make it unnecessary for one user.
+
+## Risks and open questions
+
+- **Private transport symbol.** The prototype relies on a key `@neoastra/client` does not document, and on the
+  shape of `hello`/`hello_ack` read from `dist/index.js` (protocol 1.0). A test pins both; a NeoAstra update
+  that changes them breaks the remote page, not the window. The public option is asked for later.
+- **One host, several documents.** NeoAstra's host is built for it (limits are per session), but CodeAlta's
+  code was written for one window. The audit in phase 4 is the real cost of this plan; estimate it after the
+  spike, when a second window can be opened at all.
+- **No authentication.** Until the later phase, the port is the whole protection. Loopback by default and the
+  warning on any other address are the guards; the docs recommend a private network (Tailscale: no port
+  forwarding, stable names, encrypted already). **Secure-context Web APIs** (clipboard write, notifications,
+  microphone) need `https:` or `localhost` in browsers: over plain `http://100.x.y.z:2584/` some of them are
+  unavailable. Phase 4 lists which ones hurt; TLS comes with the authentication phase, or earlier if they do.
+- **Mac sleep.** A sleeping Mac ends the sessions' processes as it does today; nothing new, but it is what
+  the user will meet first. Document; `caffeinate`-style keep-awake is out of scope.
+- **Frame cap.** Images and large tool outputs cross a socket now; the 128 MiB cap stays, but a slow link
+  makes a big paste slow. Nothing to do unless it hurts.
+- **Which configuration runs where.** The remote window reads the host's `config.toml`, providers, skills:
+  all shared, nothing to sync. Only the browser-local state (theme, drafts, open tabs) is per client, as it is
+  per WebView today.

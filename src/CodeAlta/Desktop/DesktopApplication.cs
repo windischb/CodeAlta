@@ -269,6 +269,8 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
         NeoWindow? window = null;
         DesktopWindowState? windowState = null;
         Mcp.DesktopMcpServer? mcp = null;
+        Remote.DesktopRemoteServer? remote = null;
+        NeoRpcHost? remoteRpc = null; // The RPC host of the workspace, once it exists, for the remote server.
         IAsyncDisposable? environmentLifetime = null, rpcLifetime = null, viewLifetime = null, bindingLifetime = null, chromeLifetime = null, instanceLifetime = null;
         IAsyncDisposable? uiLifetime = null;
         IAsyncDisposable? sessionTaskbarProgress = null;
@@ -334,6 +336,21 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             mcp = new Mcp.DesktopMcpServer(Mcp.DesktopMcpEndpoint.For(options), McpTools, options.StateRoot ?? options.CatalogRoot!,
                 DesktopCommandLine.Version, shell.McpServer, shell.SetMcpServer);
             _ = mcp.StartAsync(); // A server that cannot listen says so in Settings: the application does not wait for it.
+            if (options.RemotePort is { } remotePort)
+            {
+                // Prototype: the page of the application for a browser, with the RPC of the workspace over a WebSocket.
+                remote = new Remote.DesktopRemoteServer(options.McpHost ?? Mcp.DesktopMcpEndpoint.DefaultHost,
+                    remotePort, () => Volatile.Read(ref remoteRpc), new NeoManifestResourceProvider(assets, manifest), "app://codealta");
+                var startingRemote = remote;
+                _ = Task.Run(async () =>
+                {
+                    try { await startingRemote.StartAsync().ConfigureAwait(false); }
+                    catch (Exception exception) when (exception is IOException or InvalidOperationException or System.Net.Sockets.SocketException)
+                    {
+                        LogManager.GetLogger("CodeAlta.Desktop.Remote").Warn($"The remote server could not listen on port {remotePort}: {exception.Message}");
+                    }
+                });
+            }
             // The installed tool becomes an application of this desktop; the page says so the first time.
             var entry = options.Developer || roots.Home is not null ? Task.FromResult(default(DesktopIntegration.DesktopEntryChange))
                 : Task.Run(() =>
@@ -419,6 +436,7 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             {
                 await workspacePrepared.Task;
                 if (mcp is not null) await mcp.DisposeAsync(); // No client starts a command on a host that is closing.
+                if (remote is not null) await remote.DisposeAsync(); // Nor does a remote window.
                 if (retention is not null) await retention.DisposeAsync(); // Join original archive/retirement work before releasing its owners.
                 bookmarkLife?.Dispose();
                 if (workspace is not null) await Task.WhenAll(workspace.CloseImportsAsync(), workspace.CloseSessionsAsync());
@@ -833,6 +851,7 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
                     builder.AddSessionPermissionsService(new SessionPermissionsService(host.RuntimeService.Permissions, epoch, static () => true));
                     var rpc = builder.Build();
                     rpcLifetime = rpc;
+                    Volatile.Write(ref remoteRpc, rpc);
                     // All session-work producers now share the original admission registry. This does
                     // not qualify desktop restoration: its authenticated lifetime/inventory handshake
                     // is still unknown until the application document has completed it.
@@ -887,6 +906,11 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             // Whatever became of the host: nothing answers a client any more.
             try { await mcp.DisposeAsync(); }
             catch (Exception failure) { LogManager.GetLogger("CodeAlta.Desktop").Error(failure, "The MCP server did not stop"); }
+        }
+        if (remote is not null)
+        {
+            try { await remote.DisposeAsync(); }
+            catch (Exception failure) { LogManager.GetLogger("CodeAlta.Desktop").Error(failure, "The remote server did not stop"); }
         }
         var hostConfirmed = _hostCreation is null ||
             (_hostCreation.IsCompletedSuccessfully && _hostDisposal?.IsCompletedSuccessfully == true);
