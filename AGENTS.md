@@ -115,6 +115,8 @@ Then build and launch again. Check both themes and a narrow window (`resize_page
 
 **5. Mind what is shared.** The developer instance has its own sessions, so sending prompts there is safe and its sessions are disposable. Everything else is the user's real profile: do not change settings, providers, prompts or skills, and do not rename, archive or add projects, unless the task asks for it. A window started without `--dev` is the normal instance, with the user's real sessions: look and navigate freely, but do not send prompts, rename or delete sessions there unless asked, and leave it as you found it.
 
+**6. Remote access.** `--remote-port 2585` with `--dev` (or **Settings > Remote access** in its window) serves the same page to a browser at `http://127.0.0.1:2585/`, with the RPC over a WebSocket: a page in Edge or Chrome driven by a browser automation (the `chrome-devtools` MCP server of `.mcp.json`) is a second window of the developer instance beside the native one, with the `remote` tag. See "Remote access (prototype)" in `doc/desktop.md`.
+
 ### Developer instance
 
 Only one CodeAlta runs on a profile, because two processes must not write the same session files. `--dev` (`alta --dev` for the desktop app, `altatui --dev` for the terminal UI) starts a second one on the same `~/.alta`:

@@ -54,6 +54,7 @@ See [Getting Started]({{site.basepath}}/docs/getting-started/) for requirements 
     <tr><th scope="row">Worktrees: a session on its own branch, in its own folder</th><td>{{ alta_yes }} <small>Created, listed and removed in the app</small></td><td>{{ alta_part }} <small>Sessions run in theirs</small></td></tr>
     <tr><th scope="row">Agents that see and drive the app (UI tools)</th><td>{{ alta_yes }}</td><td>{{ alta_no }}</td></tr>
     <tr><th scope="row">MCP server for other applications</th><td>{{ alta_yes }}</td><td>{{ alta_no }}</td></tr>
+    <tr><th scope="row">Remote access: the window in a browser on another computer</th><td>{{ alta_yes }} <small>Prototype, no login yet</small></td><td>{{ alta_no }}</td></tr>
     <tr><th scope="row">Review each tool permission request</th><td>{{ alta_yes }}</td><td>{{ alta_yes }}</td></tr>
   </tbody>
   <tbody>
@@ -180,6 +181,10 @@ A session can work in its own git worktree, on its own branch, so that several s
 ### UI tools and MCP server
 
 An agent can take a screenshot of the window, read what it shows, click and type. Other applications do the same through the MCP server of CodeAlta Desktop. See [UI tools and MCP server](ui-tools.md).
+
+### Remote access
+
+The window of CodeAlta Desktop in a browser on another computer, with everything it does; the sessions and the files stay where CodeAlta runs. A prototype without login, for a private network. See [Remote access](remote-access.md).
 
 ### Review changes
 

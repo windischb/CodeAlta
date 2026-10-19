@@ -281,11 +281,20 @@ expanded projects, the zoom).
 
 ### Phase 5 — Documentation and release
 
-- [ ] `doc/desktop.md`: a **Remote access** section (transport, address, pairing, devices, what a remote window
-      cannot do, security notes), and the **Settings** list; `doc/development-guide.md` for the second server;
-      `site/` user page with screenshots (`doc/site-screenshots.md` sizes); `readme.md` one line.
-- [ ] `AGENTS.md`: how to test with `--dev` (port 2585) from a browser on this computer.
-- [ ] Both themes, narrow window, screenshots of the Settings page and of a remote window.
+**Done 2026-10-19.** `lunet build` passes (229 files).
+
+- [x] `doc/desktop.md`: **Remote access (prototype)** (phases 1, 3, 4) and the **Settings** list;
+      `doc/development-guide.md`: the second Kestrel server, the transport symbol, the node-test and
+      browser-test rules learned on the way; `site/docs/remote-access.md` with its entry in `menu.yml`, the
+      row of the comparison table and a subsection of `desktop-and-tui.md`; one line in `readme.md`.
+- [x] `AGENTS.md`: **6. Remote access** — `--remote-port 2585` with `--dev`, a browser page driven by
+      `chrome-devtools` as a second window of the developer instance.
+- [x] Pictures, 2400×1500 in the dark theme: `alta-desktop-remote-window.webp` (the page in a browser, the
+      remote tag, the Explorer and a New session tab) and `alta-desktop-remote-access.webp` (Settings >
+      Remote access, on). Taken from the browser page of the remote server with an emulated 1600×1000
+      viewport at 1.5 (`chrome-devtools`: `emulate`, `take_screenshot` as webp), since this display cannot
+      show a 1600×1000 window; the tags and the toasts hidden as `doc/site-screenshots.md` says, without the
+      drawn caption buttons (a browser page has none). Light theme and the narrow window: not captured.
 
 ### Later (not in this plan's checklist)
 

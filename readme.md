@@ -57,6 +57,7 @@ CodeAlta Desktop brings together:
 - **Skills & MCP**: bring in skills, tools and services.
 - **Copilot compatibility**: reuse `.github` instructions, skills and agents unchanged.
 - **UI automation**: let agents see and drive CodeAlta through built-in tools or MCP.
+- **Remote access**: use the CodeAlta of one computer from a browser on another one, on your private network ([prototype, no login yet](https://codealta.github.io/docs/remote-access/)).
 - **Storage**: manage [local disk usage and cleanup](https://codealta.github.io/docs/workspace/#storage).
 
 <p align="center">
