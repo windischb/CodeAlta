@@ -1,6 +1,6 @@
 ---
 title: Remote access to a running CodeAlta from another computer
-status: in-progress
+status: done
 created: 2026-10-16
 summary: Lets the CodeAlta that runs on one computer (the Mac, for iOS work) be used from a browser on another computer, through an optional listener inside the running application, without authentication for now (loopback or a private network such as Tailscale; pairing, tokens and TLS come later); the same program, no separate server process; a headless start and the desktop app as a client come later.
 ---
