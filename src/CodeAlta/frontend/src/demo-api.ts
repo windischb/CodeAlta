@@ -211,6 +211,10 @@ export const sandboxSettings = Object.freeze({
   session: noSandboxSession, setSession: noSandboxSession, draft: noSandboxSession,
   check: async () => (async function* (): AsyncGenerator<{ status: string; id: string | null; passed: boolean | null; detail: string | null }> { })(),
 });
+// A browser preview has no built-in browser of its own: it says so, and the browser tab shows why.
+const noBrowser = async () => ({ status: "unsupported", session: null, pageId: null });
+export const browser = Object.freeze({ state: noBrowser, open: noBrowser, close: noBrowser, select: noBrowser, move: noBrowser, navigate: noBrowser,
+  command: noBrowser, place: noBrowser, capture: async () => ({ status: "unavailable", image: null, width: 0, height: 0 }) });
 export const terminals = Object.freeze({ acknowledge: unavailable, attach: unavailable, close: unavailable, create: unavailable, detach: unavailable, input: unavailable,
   open: unavailable, profiles: unavailable, rename: unavailable, resize: unavailable, show: unavailable, watch: unavailable });
 // The demo starts no session by itself: its automations tab says so.

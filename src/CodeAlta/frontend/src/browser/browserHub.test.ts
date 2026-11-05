@@ -1,24 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { BrowserEvent, BrowserPlaceRequest, BrowserReply } from "#neoastra";
+import type { BrowserPlaceRequest, BrowserReply } from "#neoastra";
 import { boxOf, createBrowserHub, sameBox, type BrowserApi } from "./browserHub";
 
 const ok: BrowserReply = { status: "ok", session: null, pageId: null };
 
-// A host that answers at once and records the places it is told; its watch says it is ready, then waits.
+// A host that answers at once and records the places it is told: it has the built-in browser.
 function fakeHost() {
   const places: BrowserPlaceRequest[] = [];
-  let release: () => void = () => { };
   const api = {
-    watch: async () => (async function* (): AsyncGenerator<BrowserEvent> {
-      yield { kind: "ready", supported: true, session: null };
-      await new Promise<void>(resolve => { release = resolve; });
-    })(),
-    state: async () => ok, open: async () => ok, close: async () => ok, select: async () => ok, move: async () => ok,
+    state: async (request: { sessionId: string }) => (request.sessionId ? ok : { ...ok, status: "invalid" }),
+    open: async () => ok, close: async () => ok, select: async () => ok, move: async () => ok,
     navigate: async () => ok, command: async () => ok, capture: async () => ({ status: "ok", image: "data:image/jpeg;base64,", width: 1, height: 1 }),
     place: async (request: BrowserPlaceRequest) => { places.push(request); return ok; },
   } as unknown as BrowserApi;
-  return { api, places, end: () => release() };
+  return { api, places };
 }
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -35,7 +31,7 @@ test("a place is a rectangle with an area, and two places are the same to a quar
 
 test("the host is told where this window shows a browser once for each change, and that it no longer shows it when the page stops listening", async () => {
   const host = fakeHost();
-  const hub = createBrowserHub(host.api);
+  const hub = createBrowserHub(host.api, { set: () => 0, clear: () => { } });
   const disconnect = hub.connect("epoch-1");
   await tick();
   assert.equal(hub.supported(), true);
@@ -58,5 +54,4 @@ test("the host is told where this window shows a browser once for each change, a
   disconnect();
   await tick();
   assert.deepEqual(host.places.slice(-2).map(place => [place.sessionId, place.visible]), [["s2", true], ["s2", false]], "No view stays where nothing draws its frame.");
-  host.end();
 });

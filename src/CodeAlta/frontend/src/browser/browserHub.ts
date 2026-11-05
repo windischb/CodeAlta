@@ -2,7 +2,7 @@
 // shows the browser of a session.
 import type { browser, BrowserReply, BrowserSessionItem } from "#neoastra";
 
-export type BrowserApi = Pick<typeof browser, "watch" | "state" | "open" | "close" | "select" | "move" | "navigate" | "command" | "place" | "capture">;
+export type BrowserApi = Pick<typeof browser, "state" | "open" | "close" | "select" | "move" | "navigate" | "command" | "place" | "capture">;
 /** What a browser tab can be asked to do besides loading an address. */
 export type BrowserCommand = "back" | "forward" | "reload" | "stop" | "focus";
 /** Where this window shows the browser of a session: a rectangle of its page, in CSS pixels. */
@@ -11,8 +11,11 @@ export type BrowserBox = Readonly<{ x: number; y: number; width: number; height:
 export type BrowserStill = Readonly<{ image: string; width: number; height: number }>;
 type Timers = Readonly<{ set: (run: () => void, milliseconds: number) => unknown; clear: (timer: unknown) => void }>;
 
-/** How long the page waits before it listens again after the host stopped telling. */
-export const reconnectMilliseconds = 2000;
+/**
+ * How often the browser of a session this window shows is asked for: the host offers no channel for it, the page's
+ * budget of channels being spent, and it is local.
+ */
+export const pollMilliseconds = 400;
 /** How long a call may take: a view that has to be created is the slow one. */
 const callMilliseconds = 20_000;
 
@@ -39,20 +42,17 @@ function sameSession(a: BrowserSessionItem | undefined, b: BrowserSessionItem): 
 }
 
 /**
- * Listens to the host for the page. One watch carries the browser of every session that was asked for. Placing the
- * browser of a session is the frequent call: one call at a time for each session, and of several places asked for in
- * a row the last one counts.
+ * The page's link to the browsers of the sessions. The browser of each session this window shows is asked for a few
+ * times a second while it is shown. Placing the browser of a session is the frequent call: one call at a time for each
+ * session, and of several places asked for in a row the last one counts.
  */
 export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, milliseconds) => setTimeout(run, milliseconds), clear: timer => clearTimeout(timer as number) }) {
   let epoch: string | null = null;
   let supported: boolean | null = null;
-  // Whether the watch of this epoch said it is there: the host is asked about a session only then.
-  let listening = false;
   const sessions = new Map<string, BrowserSessionItem>();
   const listeners = new Set<() => void>();
-  // The sessions whose browser this window shows, and those the host was asked about since it is listened to.
+  // The sessions whose browser this window shows.
   const asked = new Set<string>();
-  const ensured = new Set<string>();
   // Where this window wants the browser of a session (absent: nowhere), what the host was last told, and who is being told.
   const wanted = new Map<string, BrowserBox>();
   const told = new Map<string, BrowserBox | null>();
@@ -78,14 +78,15 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
     } catch { return { status: "failed", session: sessions.get(sessionId) ?? null, pageId: null }; }
   }
 
-  function ask(id: string) {
+  async function ask(id: string) {
     const host = epoch;
-    if (!host || !listening || ensured.has(id)) return;
-    ensured.add(id);
-    api.state({ expectedEpoch: host, sessionId: id }, { timeoutMilliseconds: callMilliseconds }).then(reply => {
+    if (!host) return;
+    try {
+      const reply = await api.state({ expectedEpoch: host, sessionId: id }, { timeoutMilliseconds: callMilliseconds });
       if (epoch !== host) return;
-      if (reply.status === "ok") apply(reply.session); else ensured.delete(id);
-    }, () => { if (epoch === host) ensured.delete(id); });
+      if (reply.status === "unsupported") { if (supported !== false) { supported = false; notify(); } }
+      else if (reply.status === "ok") apply(reply.session);
+    } catch { /* The host is busy or gone: the next round asks again. */ }
   }
 
   const hidden = (expectedEpoch: string, sessionId: string) => ({ expectedEpoch, sessionId, visible: false, x: 0, y: 0, width: 0, height: 0 });
@@ -125,50 +126,42 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
     /** The browser of a session as the host last told it, or null before it did. The same object until it changes. */
     session: (sessionId: string): BrowserSessionItem | null => sessions.get(sessionId) ?? null,
 
-    /** Listens to the host of an epoch until the returned function is called. */
+    /** Asks the host of an epoch, until the returned function is called. */
     connect(hostEpoch: string) {
-      const abort = new AbortController();
-      let timer: unknown = null;
+      let timer: unknown = null, stopped = false;
       epoch = hostEpoch;
-      listening = false;
-      ensured.clear();
       told.clear();
-      async function watch() {
-        try {
-          for await (const event of await api.watch({ expectedEpoch: hostEpoch }, { signal: abort.signal })) {
-            if (abort.signal.aborted) return;
-            if (event.kind === "ready") {
-              if (supported !== event.supported) { supported = event.supported; notify(); }
-              // The host is there, or there again: it is asked for the browsers this window shows, and told where.
-              listening = true;
-              ensured.clear();
-              for (const id of asked) ask(id);
-              tellAll();
-            } else if (event.kind === "session") apply(event.session);
-          }
-        } catch { /* The watch ended: it starts again below, unless the page stopped listening. */ }
-        if (epoch === hostEpoch) listening = false;
-        if (!abort.signal.aborted) timer = timers.set(() => void watch(), reconnectMilliseconds);
+      // Whether this system has the built-in browser: a request without a session is refused for what it lacks.
+      void api.state({ expectedEpoch: hostEpoch, sessionId: "" }, { timeoutMilliseconds: callMilliseconds }).then(reply => {
+        if (epoch !== hostEpoch) return;
+        const has = reply.status !== "unsupported" && reply.status !== "unavailable";
+        if (supported !== has) { supported = has; notify(); }
+      }, () => { /* Asked again at the next start. */ });
+      async function poll() {
+        for (const id of [...asked]) await ask(id);
+        if (!stopped) timer = timers.set(() => void poll(), pollMilliseconds);
       }
-      void watch();
+      void poll();
+      tellAll();
       return () => {
-        abort.abort();
+        stopped = true;
         timers.clear(timer);
         if (epoch !== hostEpoch) return;
-        // The page stops listening while its host may still run: no view stays where nothing draws its frame.
+        // The page stops asking while its host may still run: no view stays where nothing draws its frame.
         for (const [id, place] of told) if (place) void api.place(hidden(hostEpoch, id)).catch(() => { /* The host is gone. */ });
         told.clear();
-        ensured.clear();
-        listening = false;
         epoch = null;
       };
     },
 
-    /** Asks the host for the browser of a session, once while it is listened to. */
+    /** Asks the host for the browser of a session now, and again while it is shown, until {@link release}. */
     ensure(sessionId: string) {
       asked.add(sessionId);
-      ask(sessionId);
+      void ask(sessionId);
     },
+
+    /** Stops asking for the browser of a session that this window no longer shows. */
+    release(sessionId: string) { asked.delete(sessionId); },
 
     /** Says where this window shows the browser of a session, or that it no longer shows it. */
     place(sessionId: string, box: BrowserBox | null) {

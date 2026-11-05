@@ -52,7 +52,7 @@ export function BrowserTab({ hub, occlusion, sessionId, visible, onActivate }: {
   const frontPage = useRef(frontId);
   frontPage.current = frontId;
 
-  useEffect(() => { hub.ensure(sessionId); }, [hub, sessionId]);
+  useEffect(() => { hub.ensure(sessionId); return () => hub.release(sessionId); }, [hub, sessionId]);
   useEffect(() => { setDraft(null); setNotice(null); setStill(null); }, [sessionId]);
   // A browser without a tab waits for an address.
   useEffect(() => { if (visible && session && pages.length === 0) addressField.current?.focus(); }, [visible, !!session, pages.length]);

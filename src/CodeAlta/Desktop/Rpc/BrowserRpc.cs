@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using CodeAlta.Desktop.Browser;
 using NeoAstra.Rpc;
 
@@ -10,6 +9,10 @@ namespace CodeAlta.Desktop.Rpc;
 /// are native views that the host owns: the page of the application draws the frame around them and never their
 /// content.
 /// </summary>
+/// <remarks>
+/// The service has no channel: the budget of channels of the page is spent (<c>RpcChannelBudgetTests</c>). A page
+/// that shows the browser of a session asks for its state while it shows it, a few times a second; the host is local.
+/// </remarks>
 [NeoRpcService("browser", Version = 1)]
 internal sealed class BrowserService
 {
@@ -154,27 +157,6 @@ internal sealed class BrowserService
         return new("ok", $"data:{capture.MediaType};base64,{Convert.ToBase64String(capture.Data.Span)}", capture.Width, capture.Height);
     }
 
-    /// <summary>
-    /// The browsers as they change: first whether this system has them, then each session whose browser was asked
-    /// for, and a session again each time its browser changes.
-    /// </summary>
-    /// <param name="request">The epoch.</param>
-    /// <param name="cancellationToken">Ends the watch.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="request"/> is null.</exception>
-    [NeoRpcMethod("watch")]
-    public NeoRpcChannel<BrowserEvent> Watch(BrowserWatchRequest request, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        return new(WatchAsync(request, cancellationToken), DesktopJsonContext.Default.BrowserEvent);
-    }
-
-    internal async IAsyncEnumerable<BrowserEvent> WatchAsync(BrowserWatchRequest request, [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        if (Refuse(request.ExpectedEpoch) is not null) yield break;
-        yield return new BrowserEvent("ready", _browsers!.IsSupported, null);
-        await foreach (var session in _browsers.WatchAsync(cancellationToken).ConfigureAwait(false)) yield return new BrowserEvent("session", true, Item(session));
-    }
-
     private string? Refuse(string? expectedEpoch)
         => _browsers is null ? "unavailable" : string.Equals(expectedEpoch, _epoch, StringComparison.Ordinal) ? null : "stale_epoch";
 
@@ -234,10 +216,6 @@ internal sealed record BrowserCommandRequest(string? ExpectedEpoch, string? Sess
 /// <param name="Height">The height, in CSS pixels.</param>
 internal sealed record BrowserPlaceRequest(string? ExpectedEpoch, string? SessionId, bool Visible, double X, double Y, double Width, double Height);
 
-/// <summary>A watch of the browsers.</summary>
-/// <param name="ExpectedEpoch">The host epoch the page read.</param>
-internal sealed record BrowserWatchRequest(string? ExpectedEpoch);
-
 /// <summary>A browser tab of a session.</summary>
 /// <param name="Id">The identifier.</param>
 /// <param name="Address">The address of its document.</param>
@@ -267,9 +245,3 @@ internal sealed record BrowserReply(string Status, BrowserSessionItem? Session =
 /// <param name="Width">Its width in pixels.</param>
 /// <param name="Height">Its height in pixels.</param>
 internal sealed record BrowserCaptureReply(string Status, string? Image, int Width, int Height);
-
-/// <summary>What the watch of the browsers tells.</summary>
-/// <param name="Kind"><c>ready</c>, then <c>session</c> for each change.</param>
-/// <param name="Supported">Whether this system has the built-in browser.</param>
-/// <param name="Session">The browser of a session that changed.</param>
-internal sealed record BrowserEvent(string Kind, bool Supported, BrowserSessionItem? Session);
