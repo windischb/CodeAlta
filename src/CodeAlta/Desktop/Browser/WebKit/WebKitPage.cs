@@ -25,7 +25,7 @@ namespace CodeAlta.Desktop.Browser.WebKit;
 /// </para>
 /// </remarks>
 [SupportedOSPlatform("macos")]
-internal sealed class WebKitPage : IBrowserPage, IAsyncDisposable
+internal sealed partial class WebKitPage : IBrowserPage, IAsyncDisposable
 {
     /// <summary>How long a call of the agent, or a script, may take.</summary>
     internal static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(30);
