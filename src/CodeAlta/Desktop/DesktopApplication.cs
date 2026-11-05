@@ -356,6 +356,9 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
         IDisposable? fileDropsLifetime = null;
         IAsyncDisposable? environmentLifetime = null, rpcLifetime = null, viewLifetime = null, bindingLifetime = null, chromeLifetime = null, instanceLifetime = null;
         IAsyncDisposable? uiLifetime = null;
+        // The built-in browser of the sessions: native views above the pages of the windows (macOS).
+        Browser.DesktopBrowsers? browsers = null;
+        IAsyncDisposable? browserViewsLifetime = null;
         IAsyncDisposable? sessionTaskbarProgress = null;
         IAsyncDisposable? sessionTurnAlerts = null;
         var bodyFailed = false;
@@ -378,6 +381,14 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             window = application.CreateWindow(DesktopWindowChrome.WindowOptions(options.Developer, appearance));
             application.MainWindow = window;
             var windows = desktopWindows = new Windows.DesktopWindows(application, options.DataRoot, options.Developer);
+            if (OperatingSystem.IsMacOS())
+            {
+                // The built-in browser: its views are created on the main window and laid over the page of the window
+                // that shows the browser of their session; its own browser data, no scheme and no bridge of the application.
+                var browserViews = new Browser.MacBrowserViews(application, window, Path.Combine(options.DataRoot, "webview-browser"));
+                browserViewsLifetime = browserViews;
+                browsers = new Browser.DesktopBrowsers(browserViews, new Browser.BrowserFileStore(Path.Combine(options.StateRoot ?? options.CatalogRoot!, "browser-tabs")));
+            }
             window.Closed += (_, _) => { retention?.ProtectionRpc.InvalidatePage(); closed.TrySetResult(); };
             var shutdownWindow = window;
             // The application's shutdown starts once, from the window being closed without a tray to stay in,
@@ -784,6 +795,8 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             if (DesktopPlugins.DescribeStartupFailures(host.PluginRuntime.Diagnostics) is { } pluginFailures) pluginUi.NotifyProblem(pluginFailures);
             // A session whose background job runs is at work too: exiting ends the command.
             shell.RunningSessions = host.RuntimeService.CountSessionsAtWork;
+            // A session that is deleted takes its browser tabs with it.
+            if (browsers is { } sessionBrowsers) host.RuntimeService.SessionDeleted += sessionId => _ = sessionBrowsers.ForgetAsync(sessionId);
             sessionTaskbarProgress = DesktopWindowsTaskbarProgress.StartIfAvailable(window, chrome.Services.WindowPolish, host.RuntimeService);
             // A question a session asked, a command to review, a form to fill, a conversation open elsewhere.
             // A send of the fleet a budget holds until its owner continues it waits for a person too.
@@ -1298,6 +1311,8 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
                     // while that folder is there, the folder of its project otherwise.
                     builder.AddTerminalsService(new TerminalsService(terminals, host.ProjectCatalog, epoch,
                         async (sessionId, token) => await SessionFolderAsync(host, sessionId, token).ConfigureAwait(false)));
+                    // The built-in browser of the sessions, where this system has one.
+                    builder.AddBrowserService(browsers is not null ? new BrowserService(browsers, epoch) : new BrowserService());
                     // The cloud sessions of Claude Code: started in a terminal of the window, which is shown when Claude Code asks.
                     builder.AddCloudSessionsService(new CloudSessionsService(host.Commands, host.ProjectCatalog, host.ModelProviderRegistry,
                         () => host.ModelProviderInitializationService.CurrentStates, terminals, worktrees, epoch));
@@ -1451,7 +1466,14 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
         // The placement of the window for the next start, written while the window is still there.
         if (windowState is not null) await windowState.DisposeAsync();
         var nativeFailed = false;
-        foreach (var resource in new[] { uiLifetime, bindingLifetime, viewLifetime, rpcLifetime, instanceLifetime, sessionTaskbarProgress, sessionTurnAlerts, chromeLifetime, environmentLifetime })
+        // The browser tabs of the sessions end before the views of the windows they lie over.
+        if (browsers is not null)
+        {
+            try { await browsers.DisposeAsync(); }
+            catch (Exception) { bodyFailed = true; }
+        }
+
+        foreach (var resource in new[] { uiLifetime, browserViewsLifetime, bindingLifetime, viewLifetime, rpcLifetime, instanceLifetime, sessionTaskbarProgress, sessionTurnAlerts, chromeLifetime, environmentLifetime })
         {
             if (resource is null) continue;
             try
@@ -1626,6 +1648,7 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             builder.AddWorktreesService(new WorktreesService());
             builder.AddMcpHostService(new McpHostService());
             builder.AddTerminalsService(new TerminalsService());
+            builder.AddBrowserService(new BrowserService());
             builder.AddCloudSessionsService(new CloudSessionsService());
             builder.AddAutomationsService(new AutomationsService());
             builder.AddWorkflowsService(new WorkflowsService());

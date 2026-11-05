@@ -37,7 +37,8 @@ internal sealed class DesktopUiAutomation : IDesktopUi, IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(filesDirectory);
         FilesDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(filesDirectory));
         Directory.CreateDirectory(FilesDirectory);
-        _automation = new NeoAutomation(application, new NeoAutomationOptions { AllowedDirectories = { FilesDirectory } });
+        // The browser tabs of the sessions are views of the windows too, but not pages of the application.
+        _automation = new NeoAutomation(application, new NeoAutomationOptions { AllowedDirectories = { FilesDirectory }, PageFilter = static view => !Browser.MacBrowserViews.IsBrowserView(view) });
         Tools = Describe(_automation.Tools.Select(static tool => new DesktopUiTool(tool.Name, tool.Description, tool.InputSchema, tool.IsReadOnly)));
     }
 
