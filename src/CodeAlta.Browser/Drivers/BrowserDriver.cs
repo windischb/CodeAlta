@@ -280,6 +280,12 @@ internal sealed record BrowserContextOptions
     /// with a window, never for a headless one, where nobody looks. Chromium browsers only.
     /// </summary>
     public bool ShowAgent { get; init; }
+
+    /// <summary>
+    /// Gets the session whose tabs these are, or null. The browser built into the application shows the tabs of a
+    /// session in its window, so it needs to know whose they are; the other browsers do not.
+    /// </summary>
+    public string? SessionId { get; init; }
 }
 
 /// <summary>A browser CodeAlta drives: one it started, or the user's own it attached to.</summary>

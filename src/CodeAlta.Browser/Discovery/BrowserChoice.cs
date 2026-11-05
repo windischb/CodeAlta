@@ -252,7 +252,8 @@ internal static class BrowserChoice
             preferredNote = Find(usages, preferred) is null ? $"; {preferred}, preferred in Settings, is not installed" : $"; {preferred}, preferred in Settings, cannot use this profile";
         }
 
-        var candidates = usages.Where(usage => usage.Browser.Refusal(profile) is null).ToList();
+        // The browser built into the application is a choice of the user or of the session, never one made for them.
+        var candidates = usages.Where(usage => usage.Browser.Engine != BrowserEngine.Embedded && usage.Browser.Refusal(profile) is null).ToList();
         if (candidates.Count == 0)
         {
             refusal = usages.Count == 0

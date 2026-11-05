@@ -75,6 +75,15 @@ public sealed class BrowserPluginHost
     public string Root => Path.Combine(StateRoot, "browser");
 
     /// <summary>
+    /// Gets or sets the browser built into the application, or null where it has none: what opens its connection. The
+    /// desktop application sets it before any session asks for a browser.
+    /// </summary>
+    internal Func<CancellationToken, ValueTask<CodeAlta.Browser.Drivers.IBrowserConnection>>? Embedded { get; set; }
+
+    /// <summary>The id of the browser built into the application, in the browser choice and in Settings.</summary>
+    public const string EmbeddedId = "codealta";
+
+    /// <summary>
     /// Gets whether a user is there to see the browser and answer its requests. Without one (<c>altacli</c>), the
     /// browser runs headless and the user's own browser is never used.
     /// </summary>

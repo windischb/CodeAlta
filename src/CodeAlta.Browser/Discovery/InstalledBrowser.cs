@@ -11,6 +11,9 @@ internal enum BrowserEngine
 
     /// <summary>Safari: its own MCP server, <c>safaridriver --mcp</c>.</summary>
     Safari,
+
+    /// <summary>The browser built into CodeAlta Desktop: a view of the application, which the host drives itself.</summary>
+    Embedded,
 }
 
 /// <summary>The kind of profile a session browses with.</summary>
@@ -56,6 +59,8 @@ internal sealed record InstalledBrowser(
     /// <returns>Null when it can, else the reason, for the agent.</returns>
     public string? Refusal(BrowserProfileKind profile) => (Engine, profile) switch
     {
+        (BrowserEngine.Embedded, BrowserProfileKind.User) =>
+            $"{Name} has no profile of the user: it browses in a profile of its own. Use Chrome, Edge or Firefox for the user's own profile.",
         (BrowserEngine.Safari, _) when MajorVersion is > 0 and < 27 =>
             $"{Name} {Version} has no MCP server of its own: that takes Safari 27 or later.",
         (BrowserEngine.Safari, BrowserProfileKind.Persistent or BrowserProfileKind.User) =>

@@ -14,5 +14,8 @@
     <ProjectReference Include="..\CodeAlta.Browser\CodeAlta.Browser.csproj" />
     <ProjectReference Include="..\CodeAlta.Plugins.Abstractions\CodeAlta.Plugins.Abstractions.csproj" />
     <InternalsVisibleTo Include="CodeAlta.Browser.Tests" />
+    <!-- The desktop application gives the plugin the browser built into it. -->
+    <InternalsVisibleTo Include="alta" />
+    <InternalsVisibleTo Include="CodeAlta.Desktop.Tests" />
   </ItemGroup>
 </Project>

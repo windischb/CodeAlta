@@ -387,7 +387,11 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
                 // that shows the browser of their session; its own browser data, no scheme and no bridge of the application.
                 var browserViews = new Browser.MacBrowserViews(application, window, Path.Combine(options.DataRoot, "webview-browser"));
                 browserViewsLifetime = browserViews;
-                browsers = new Browser.DesktopBrowsers(browserViews, new Browser.BrowserFileStore(Path.Combine(options.StateRoot ?? options.CatalogRoot!, "browser-tabs")));
+                var sessionBrowsers = new Browser.DesktopBrowsers(browserViews, new Browser.BrowserFileStore(Path.Combine(options.StateRoot ?? options.CatalogRoot!, "browser-tabs")));
+                browsers = sessionBrowsers;
+                // The agents of the sessions drive the same tabs, when the built-in browser is the one chosen.
+                CodeAlta.Browser.Drivers.IBrowserConnection embedded = new Browser.WebKit.WebKitBrowserConnection(sessionBrowsers);
+                browserHost.Embedded = _ => ValueTask.FromResult(embedded);
             }
             window.Closed += (_, _) => { retention?.ProtectionRpc.InvalidatePage(); closed.TrySetResult(); };
             var shutdownWindow = window;

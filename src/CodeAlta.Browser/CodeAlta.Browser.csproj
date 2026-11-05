@@ -21,6 +21,9 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="CodeAlta.Browser.Tests" />
+    <!-- The desktop application gives the plugin the browser built into it. -->
+    <InternalsVisibleTo Include="alta" />
+    <InternalsVisibleTo Include="CodeAlta.Desktop.Tests" />
     <InternalsVisibleTo Include="CodeAlta.Plugin.Browser" />
   </ItemGroup>
 </Project>

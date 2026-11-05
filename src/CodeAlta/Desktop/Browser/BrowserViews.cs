@@ -37,6 +37,47 @@ internal sealed record BrowserViewState(string Address, string Title, bool Loadi
 internal sealed record BrowserCapture(ReadOnlyMemory<byte> Data, string MediaType, int Width, int Height);
 
 /// <summary>
+/// What drives the page of a browser view for the tools of the agent: the NeoAstra view and its native view, the
+/// worlds of CodeAlta in its documents, and what it reports of its navigations. Used on the thread of the windows.
+/// </summary>
+internal interface IBrowserViewDriver
+{
+    /// <summary>Gets the NeoAstra view.</summary>
+    global::NeoAstra.NeoAstra View { get; }
+
+    /// <summary>Gets the native view: the WKWebView on macOS.</summary>
+    nint Native { get; }
+
+    /// <summary>Gets the number of documents the main frame started to load.</summary>
+    long Navigations { get; }
+
+    /// <summary>Gets the JavaScript dialog the page has open, or null.</summary>
+    global::NeoAstra.NeoScriptDialogRequest? Dialog { get; }
+
+    /// <summary>
+    /// Gets or sets who answers the JavaScript dialogs of the page: given the dialog, the answer, or null to leave it
+    /// open until it is answered with <see cref="AnswerDialog"/>.
+    /// </summary>
+    Func<global::NeoAstra.NeoScriptDialogRequest, (bool Accept, string? Text)?>? DialogPolicy { get; set; }
+
+    /// <summary>Occurs on the thread of the windows when a document of the main frame finished loading, or failed to.</summary>
+    event Action? Loaded;
+
+    /// <summary>Answers the dialog the page has open.</summary>
+    /// <returns>Whether there was one.</returns>
+    bool AnswerDialog(bool accept, string? text);
+
+    /// <summary>Whether something is done to this view for the first time: true once for each key, then false.</summary>
+    /// <param name="key">What is done.</param>
+    bool Once(string key);
+
+    /// <summary>A world of CodeAlta in the documents of the page, opened with its script the first time it is asked for.</summary>
+    /// <param name="name">The name of the world.</param>
+    /// <param name="script">The script that runs at the start of each document in that world.</param>
+    MacContentWorld World(string name, string? script);
+}
+
+/// <summary>
 /// The native view of one page of the browser: a browser view of its own, which lies above the page of the window
 /// that shows it. Every member is used on the thread of the windows.
 /// </summary>
@@ -44,6 +85,9 @@ internal interface IBrowserView : IAsyncDisposable
 {
     /// <summary>Gets what the page shows of itself now.</summary>
     BrowserViewState State { get; }
+
+    /// <summary>Gets what drives the page for the tools of the agent, or null where the view has none.</summary>
+    IBrowserViewDriver? Driver { get; }
 
     /// <summary>Occurs on the thread of the windows when <see cref="State"/> changed.</summary>
     event Action? Changed;

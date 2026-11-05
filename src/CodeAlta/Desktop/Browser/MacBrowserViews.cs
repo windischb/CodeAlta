@@ -169,12 +169,15 @@ internal sealed class MacBrowserViews : IBrowserViews, IAsyncDisposable
     }
 
     /// <summary>One page: a WKWebView laid above the page of the window that shows it.</summary>
-    private sealed class MacBrowserView : IBrowserView
+    private sealed class MacBrowserView : IBrowserView, IBrowserViewDriver
     {
         private readonly MacBrowserViews _owner;
         private readonly View _view;
         private readonly nint _native;
+        private readonly Dictionary<string, MacContentWorld> _worlds = new(StringComparer.Ordinal);
+        private readonly HashSet<string> _done = new(StringComparer.Ordinal);
         private BrowserPlacement? _placement;
+        private TaskCompletionSource<NeoScriptDialogDecision>? _dialogAnswer;
         private bool _disposed;
 
         internal MacBrowserView(MacBrowserViews owner, View view, nint native, Action<Uri> openPage)
@@ -182,8 +185,12 @@ internal sealed class MacBrowserViews : IBrowserViews, IAsyncDisposable
             (_owner, _view, _native) = (owner, view, native);
             State = Read();
             // A document may go where the browser may be sent; a frame of it loads what a frame loads.
-            view.NavigationRequested = static request => ValueTask.FromResult(
-                !request.IsMainFrame || BrowserAddress.IsAllowed(request.Uri) ? NeoNavigationDecision.Allow : NeoNavigationDecision.Cancel);
+            view.NavigationRequested = request =>
+            {
+                var allowed = !request.IsMainFrame || BrowserAddress.IsAllowed(request.Uri);
+                if (allowed && request.IsMainFrame) Navigations++;
+                return ValueTask.FromResult(allowed ? NeoNavigationDecision.Allow : NeoNavigationDecision.Cancel);
+            };
             // A new window is a new page of the same session.
             view.NewWindowRequested = request =>
             {
@@ -192,10 +199,67 @@ internal sealed class MacBrowserViews : IBrowserViews, IAsyncDisposable
             };
             view.PermissionRequested = static _ => ValueTask.FromResult(NeoPermissionDecision.DenyOnce);
             view.DownloadRequested = static _ => ValueTask.FromResult(NeoDownloadDecision.Cancel);
-            view.NavigationCompleted += (_, _) => Refresh();
+            view.NavigationCompleted += (_, _) =>
+            {
+                Refresh();
+                Loaded?.Invoke();
+            };
+            view.ScriptDialogRequested = OnDialogAsync;
         }
 
         public BrowserViewState State { get; private set; }
+
+        public IBrowserViewDriver? Driver => _disposed ? null : this;
+
+        public View View => _view;
+
+        public nint Native => _native;
+
+        public long Navigations { get; private set; }
+
+        public NeoScriptDialogRequest? Dialog { get; private set; }
+
+        public Func<NeoScriptDialogRequest, (bool Accept, string? Text)?>? DialogPolicy { get; set; }
+
+        public event Action? Loaded;
+
+        public bool AnswerDialog(bool accept, string? text)
+        {
+            if (_dialogAnswer is not { } answer) return false;
+            var kind = Dialog?.Kind;
+            _dialogAnswer = null;
+            Dialog = null;
+            answer.TrySetResult(!accept ? NeoScriptDialogDecision.Cancel
+                : kind == NeoScriptDialogKind.Prompt ? NeoScriptDialogDecision.AcceptPrompt(text ?? string.Empty) : NeoScriptDialogDecision.Accept);
+            Refresh();
+            return true;
+        }
+
+        public bool Once(string key) => _done.Add(key);
+
+        public MacContentWorld World(string name, string? script)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (!OperatingSystem.IsMacOS()) throw new PlatformNotSupportedException("A world of CodeAlta needs WKWebView.");
+            if (!_worlds.TryGetValue(name, out var world)) _worlds[name] = world = new MacContentWorld(_native, name, script);
+            return world;
+        }
+
+        // A dialog of the page: answered at once by who drives the page, or kept open until someone answers it.
+        private async ValueTask<NeoScriptDialogDecision> OnDialogAsync(NeoScriptDialogRequest request)
+        {
+            if (DialogPolicy?.Invoke(request) is { } decided)
+            {
+                return !decided.Accept ? NeoScriptDialogDecision.Cancel
+                    : request.Kind == NeoScriptDialogKind.Prompt ? NeoScriptDialogDecision.AcceptPrompt(decided.Text ?? request.DefaultText ?? string.Empty) : NeoScriptDialogDecision.Accept;
+            }
+
+            _dialogAnswer?.TrySetResult(NeoScriptDialogDecision.Cancel);
+            var answer = new TaskCompletionSource<NeoScriptDialogDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
+            (_dialogAnswer, Dialog) = (answer, request);
+            Refresh();
+            return await answer.Task.ConfigureAwait(true);
+        }
 
         public event Action? Changed;
 
@@ -257,6 +321,9 @@ internal sealed class MacBrowserViews : IBrowserViews, IAsyncDisposable
             if (_disposed) return;
             if (_placement is not null) Hide();
             _disposed = true;
+            AnswerDialog(false, null);
+            foreach (var world in _worlds.Values) world.Dispose();
+            _worlds.Clear();
             _owner.Remove(this);
             await _view.DisposeAsync();
         }
@@ -408,6 +475,10 @@ internal static class MacViewInterop
         if (window != 0) GetByte(window, Selector("makeFirstResponder:"), view);
     }
 
+    /// <summary>Sets the user agent of a view, or gives it back its own with null.</summary>
+    internal static void SetUserAgent(nint view, string? userAgent)
+        => Send(view, Selector("setCustomUserAgent:"), userAgent is null ? 0 : SendText(objc_getClass("NSString"), Selector("stringWithUTF8String:"), userAgent));
+
     private static bool Holds(nint responder, nint view)
         => responder != 0 && GetByte(responder, Selector("isKindOfClass:"), objc_getClass("NSView")) != 0
             && (responder == view || GetByte(responder, Selector("isDescendantOf:"), view) != 0);
@@ -427,4 +498,5 @@ internal static class MacViewInterop
     [DllImport(ObjectiveC, EntryPoint = "objc_msgSend")] private static extern void SendRect(nint receiver, nint selector, CGRect rect);
     [DllImport(ObjectiveC, EntryPoint = "objc_msgSend")] private static extern CGRect ConvertRect(nint receiver, nint selector, CGRect rect, nint view);
     [DllImport(ObjectiveC, EntryPoint = "objc_msgSend")] private static extern void SendSubview(nint receiver, nint selector, nint view, nint place, nint relative);
+    [DllImport(ObjectiveC, EntryPoint = "objc_msgSend")] private static extern nint SendText(nint receiver, nint selector, [MarshalAs(UnmanagedType.LPUTF8Str)] string text);
 }

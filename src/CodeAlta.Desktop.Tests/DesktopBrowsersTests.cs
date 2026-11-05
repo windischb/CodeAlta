@@ -237,6 +237,8 @@ public sealed class DesktopBrowsersTests
 
         public BrowserViewState State { get; } = new(BrowserAddress.Blank, string.Empty, false, false, false);
 
+        public IBrowserViewDriver? Driver => null;
+
 #pragma warning disable CS0067 // The views of the tests report no change by themselves.
         public event Action? Changed;
 #pragma warning restore CS0067

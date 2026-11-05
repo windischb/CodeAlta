@@ -44,6 +44,19 @@ public sealed class BrowserDiscoveryTests
     }
 
     [TestMethod]
+    public void TheBuiltInBrowser_IsChosenByTheUserOrTheSession_NeverByItself_AndNeverForTheUsersProfile()
+    {
+        BrowserUsage[] usages = [new(Browser("codealta", BrowserEngine.Embedded), Now, true, Measurable: false), new(Browser("chrome"), Now.AddDays(-9), false)];
+        Assert.AreEqual("chrome", BrowserChoice.Choose(usages, null, null, BrowserProfileKind.Isolated, Now, out _)!.Browser.Id, "Not the default, even when it says it is.");
+        Assert.AreEqual("codealta", BrowserChoice.Choose(usages, null, "codealta", BrowserProfileKind.Isolated, Now, out _)!.Browser.Id, "Chosen in Settings.");
+        Assert.AreEqual("codealta", BrowserChoice.Choose(usages, "codealta", null, BrowserProfileKind.Persistent, Now, out _)!.Browser.Id, "Named by the session.");
+        Assert.IsNull(BrowserChoice.Choose(usages, "codealta", null, BrowserProfileKind.User, Now, out var refusal));
+        StringAssert.Contains(refusal, "no profile of the user");
+        BrowserUsage[] alone = [new(Browser("codealta", BrowserEngine.Embedded), Now, true, Measurable: false)];
+        Assert.IsNull(BrowserChoice.Choose(alone, null, null, BrowserProfileKind.Isolated, Now, out _), "Alone, it is still not picked for the user.");
+    }
+
+    [TestMethod]
     public void TheSessionsNameThenSettingsComeFirst()
     {
         BrowserUsage[] usages = [new(Browser("chrome"), Now, true), new(Browser("edge"), Now.AddDays(-9), false), new(Browser("firefox", BrowserEngine.Firefox), null, false)];

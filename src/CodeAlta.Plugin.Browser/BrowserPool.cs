@@ -98,6 +98,10 @@ internal sealed class BrowserPool : IAsyncDisposable
         {
             switch (target.Profile.Kind, browser.Engine)
             {
+                case (_, BrowserEngine.Embedded):
+                    return _host.Embedded is { } embedded
+                        ? await embedded(CancellationToken.None).ConfigureAwait(false)
+                        : throw new BrowserToolException("not-supported", $"{browser.Name} is only in CodeAlta Desktop on macOS.");
                 case (BrowserProfileKind.User, BrowserEngine.Chromium):
                     return await AttachChromiumAsync(browser).ConfigureAwait(false);
                 case (BrowserProfileKind.User, BrowserEngine.Firefox):

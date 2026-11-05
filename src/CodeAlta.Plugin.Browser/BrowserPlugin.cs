@@ -609,6 +609,9 @@ public sealed class BrowserPlugin : PluginBase
     {
         var environment = _host.Environment;
         var usages = BrowserChoice.ReadUsage(environment, BrowserCatalog.Find(environment)).ToList();
+        // The browser built into the application, where it has one: chosen in Settings or by a session, never by itself.
+        if (_host.Embedded is not null)
+            usages.Insert(0, new BrowserUsage(new InstalledBrowser(BrowserPluginHost.EmbeddedId, "CodeAlta (built-in)", BrowserEngine.Embedded, string.Empty, null, null, []), null, false, Measurable: false));
         if (Path.IsPathRooted(settings.Browser) && File.Exists(settings.Browser)
             && !usages.Any(usage => string.Equals(usage.Browser.ExecutablePath, settings.Browser, OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase)))
         {

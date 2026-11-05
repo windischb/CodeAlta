@@ -37,7 +37,9 @@ public sealed class DesktopArchitectureTests
                     // The update of the fleet: the hashes of the feed an owner's computer signs, and why a feed was refused.
                     or "CodeAlta.Fleet.Update"
                     // The safe file operations every project shares.
-                    or "CodeAlta.Core", reference.Name);
+                    or "CodeAlta.Core"
+                    // The driver of the built-in browser: the desktop drives its own views through the interfaces of the browser library.
+                    or "CodeAlta.Browser", reference.Name);
             Assert.AreNotEqual("altatui", reference.Name);
         }
     }

@@ -1,6 +1,4 @@
 using System.Collections.Concurrent;
-using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 
 namespace CodeAlta.Desktop.Browser;
 
@@ -91,8 +89,6 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
     private readonly IBrowserStore? _store;
     private readonly Dictionary<string, Task<Session>> _sessions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, BrowserSessionInfo> _published = new(StringComparer.Ordinal);
-    private readonly Lock _feedGate = new();
-    private readonly List<Channel<BrowserSessionInfo>> _feeds = [];
     private readonly Lock _savingGate = new();
     private Task _saving = Task.CompletedTask;
     private long _clock;
@@ -113,6 +109,36 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
 
     /// <summary>Gets whether this system can show a browser inside a window of the application.</summary>
     internal bool IsSupported => _views.IsSupported;
+
+    /// <summary>Occurs on the thread of the windows when a browser tab opens in a session: by the user, an agent or a page.</summary>
+    internal event Action<string, string>? PageOpened;
+
+    /// <summary>Runs work on the thread of the windows, where the views and their drivers are used.</summary>
+    /// <typeparam name="T">What the work returns.</typeparam>
+    /// <param name="body">The work.</param>
+    /// <exception cref="ObjectDisposedException">The application is ending.</exception>
+    internal Task<T> OnViewThreadAsync<T>(Func<Task<T>> body) => _views.RunAsync(body);
+
+    /// <summary>
+    /// What drives a browser tab for the tools of an agent, on the thread of the windows: a tab whose view was let go
+    /// gets a new one, which loads its address again. The tab counts as used now.
+    /// </summary>
+    /// <param name="sessionId">The session.</param>
+    /// <param name="pageId">The browser tab.</param>
+    /// <returns>The driver, or null when there is no such tab or it has no view.</returns>
+    internal async Task<IBrowserViewDriver?> DriveAsync(string sessionId, string pageId)
+    {
+        IBrowserViewDriver? driver = null;
+        var result = await RunAsync(sessionId, async session =>
+        {
+            if (Find(session, pageId) is not { } page) return "not_found";
+            if (await LiveAsync(page) is not { } view) return "failed";
+            page.Shown = ++_clock;
+            driver = view.Driver;
+            return "ok";
+        }).ConfigureAwait(false);
+        return result.Status == "ok" ? driver : null;
+    }
 
     /// <summary>Gets the most views that are kept.</summary>
     internal int LiveViews { get; }
@@ -141,6 +167,7 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
             session.Pages.Add(page);
             session.Active = page;
             opened = page.Id;
+            PageOpened?.Invoke(session.Id, page.Id);
             // The page loads at once, also in a session that is not shown.
             var view = await LiveAsync(page);
             await ApplyAsync(session);
@@ -288,7 +315,6 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
                     session.Pages.Clear();
                     session.Active = null;
                     _published.TryRemove(sessionId, out _);
-                    Tell(new BrowserSessionInfo(sessionId, [], null));
                 }
 
                 Save(() => _store?.Delete(sessionId));
@@ -301,32 +327,7 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// The browsers as they change: first each session that was asked for in this run, then a session each time
-    /// its browser changes. A session whose browser ended is told once more, without pages.
-    /// </summary>
-    /// <param name="cancellationToken">Ends the watch.</param>
-    internal async IAsyncEnumerable<BrowserSessionInfo> WatchAsync([EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        var channel = Channel.CreateBounded<BrowserSessionInfo>(new BoundedChannelOptions(256) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true });
-        lock (_feedGate)
-        {
-            if (_closed) channel.Writer.TryComplete();
-            else _feeds.Add(channel);
-        }
-
-        try
-        {
-            foreach (var info in _published.Values) yield return info;
-            await foreach (var change in channel.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false)) yield return change;
-        }
-        finally
-        {
-            lock (_feedGate) _feeds.Remove(channel);
-        }
-    }
-
-    /// <summary>Ends every view and every watch, and waits for what is still being kept.</summary>
+    /// <summary>Ends every view, and waits for what is still being kept.</summary>
     public async ValueTask DisposeAsync()
     {
         try
@@ -351,13 +352,7 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
             // The thread of the windows is gone, and the views with it.
         }
 
-        lock (_feedGate)
-        {
-            _closed = true;
-            foreach (var feed in _feeds) feed.Writer.TryComplete();
-            _feeds.Clear();
-        }
-
+        _closed = true;
         Task saving;
         lock (_savingGate) saving = _saving;
         await saving.ConfigureAwait(false);
@@ -565,7 +560,6 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
         if (!_sessions.ContainsKey(session.Id)) return info;
         if (_published.TryGetValue(session.Id, out var before) && Same(before, info)) return before;
         _published[session.Id] = info;
-        Tell(info);
         var record = Record(session);
         if (_store is { } store && !Same(session.Saved, record))
         {
@@ -574,14 +568,6 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
         }
 
         return info;
-    }
-
-    private void Tell(BrowserSessionInfo info)
-    {
-        lock (_feedGate)
-        {
-            foreach (var feed in _feeds) feed.Writer.TryWrite(info);
-        }
     }
 
     // What is kept is written off the thread of the windows, one write after the other.
