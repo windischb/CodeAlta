@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { WindowsCurrentResponse, WindowsEvent, WindowsWindow } from "#neoastra";
-import { automationsTab, canvasTab, changesTab, documentationTab, editorTab, terminalTab } from "../fileTabs";
+import { automationsTab, browserTab, canvasTab, changesTab, documentationTab, editorTab, terminalTab } from "../fileTabs";
 import { fileTabRef, readTransfer, sessionTabRef, spaceBound, tabRefKind, transferOf } from "./tabRefs";
 import { createWindowsHub, readWindowPage, writeWindowPage, type WindowsApi } from "./windowsHub";
 
@@ -15,6 +15,8 @@ test("a tab is named as the host and alta window name it", () => {
   assert.equal(fileTabRef(documentationTab), "documentation");
   assert.equal(fileTabRef(automationsTab), "automations");
   assert.equal(fileTabRef(canvasTab({ pluginKey: "git", canvasId: "board", project: { id: "p1", path: "C:\\code\\p1" } })), "canvas:git/board/p1//");
+  assert.equal(fileTabRef(browserTab({ id: "s1" })), "browser:s1", "One browser for each session.");
+  assert.equal(tabRefKind("browser:s1"), "browser");
   assert.equal(tabRefKind("session:s1"), "session");
   assert.equal(tabRefKind("documentation"), "documentation");
 });
@@ -23,6 +25,7 @@ test("what is of a project stays in a window of its space; what is of the applic
   assert.equal(spaceBound({ session: { sessionId: "s1", projectId: "p1", path: "C:\\code\\p1" } }), true);
   assert.equal(spaceBound({ file: editorTab(project) }), true);
   assert.equal(spaceBound({ file: changesTab(project) }), true);
+  assert.equal(spaceBound({ file: browserTab({ id: "s1" }) }), true, "The browser of a session goes where its session goes.");
   assert.equal(spaceBound({ file: documentationTab }), false);
   assert.equal(spaceBound({ file: terminalTab({ id: "t1", projectId: "p1", folder: "C:\\" }) }), false);
   assert.equal(spaceBound({ file: canvasTab({ pluginKey: "git", canvasId: "board" }) }), false);

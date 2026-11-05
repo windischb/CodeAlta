@@ -3,7 +3,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { TerminalItem, WorkspaceSnapshot } from "#neoastra";
-import { activateFileTab, automationsTab, isWorkflowsTab, workflowsTab, claudeCodeTab, dropClaudeCodeTab, isClaudeCodeTab, openClaudeCodeTab, bookmarksTab, isBookmarksTab, canvasTab, isCanvasTab, refreshCanvasTab, isWorkItemsTab, workItemsTab, changesTab, closeFileTab, diskEditorTab, diskFolderPrefix, isDiskFolderTab, editorTab, emptyFileTabs, fileNodeId, isAutomationsTab, isChangesTab, isEditorTab, isFolderTab, isPluginTab, isReadOnlyTab, isSkillTab, isTerminalTab, fileTabKey, fileTabLimit, openFileTab,
+import { activateFileTab, browserTab, isBrowserTab, automationsTab, isWorkflowsTab, workflowsTab, claudeCodeTab, dropClaudeCodeTab, isClaudeCodeTab, openClaudeCodeTab, bookmarksTab, isBookmarksTab, canvasTab, isCanvasTab, refreshCanvasTab, isWorkItemsTab, workItemsTab, changesTab, closeFileTab, diskEditorTab, diskFolderPrefix, isDiskFolderTab, editorTab, emptyFileTabs, fileNodeId, isAutomationsTab, isChangesTab, isEditorTab, isFolderTab, isPluginTab, isReadOnlyTab, isSkillTab, isTerminalTab, fileTabKey, fileTabLimit, openFileTab,
   persistFileTabs, pluginEditorTab, pluginFolderPrefix, reconcileFileTabs, reconcileTerminalTabs, reopenTabKind, resolveFileTab, restoreFileTabs, restoreLegacyFiles, sameFileTab, skillEditorTab, skillFolderPrefix,
   skillReadOnly, terminalTab, type FileTab } from "./fileTabs";
 import { FileTabLabel } from "./SessionTabStrip";
@@ -511,4 +511,21 @@ test("the preview of a Claude Code conversation takes the place of the one befor
   // A preview lasts as long as its project.
   assert.equal(reconcileFileTabs({ open: [conversation("c1")], active: null, closed: [] }, catalog).open.length, 1);
   assert.equal(reconcileFileTabs({ open: [claudeCodeTab({ id: "old", path: "/old" }, { cliSessionId: "c1", title: "t", origin: "vscode" }, null)], active: null, closed: [] }, catalog).open.length, 0);
+});
+
+test("the browser of a session is one tab per session, kept across a restart while its session is there", () => {
+  const one = browserTab({ id: "s1", title: "First session" }), again = browserTab({ id: "s1", title: "Renamed" }), other = browserTab({ id: "s2" });
+  assert.equal(isBrowserTab(one), true);
+  assert.equal(fileTabKey(one), fileTabKey(again), "Its key is the session, not its title.");
+  assert.notEqual(fileTabKey(one), fileTabKey(other));
+  const state = openFileTab(openFileTab(emptyFileTabs(), one), other);
+  let stored = "";
+  assert.equal(persistFileTabs(value => { stored = value; }, state), true);
+  assert.deepEqual(restoreFileTabs(() => stored)?.open, [one, other]);
+  // A tab of a browser stored with something it never has is not restored.
+  const broken = JSON.stringify({ version: 1, open: [{ ...one, path: "x" }, { projectId: "", projectPath: "", view: "browser" }], active: null });
+  assert.deepEqual(restoreFileTabs(() => broken)?.open ?? [], []);
+  // A session that is gone takes its browser tab with it.
+  const snapshot = { sessions: [{ id: "s2" }], projects: [] } as unknown as WorkspaceSnapshot;
+  assert.deepEqual(reconcileFileTabs(state, snapshot).open, [other]);
 });

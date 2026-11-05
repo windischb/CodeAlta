@@ -5,7 +5,7 @@ import type { MessageKey } from "./localization";
  * keyboard dispatcher. Names, labels and key gestures follow the terminal UI so both heads share one key map.
  */
 export type CommandId =
-  | "help" | "palette" | "openProject" | "editFile" | "projectEditor" | "externalEditor" | "fileExplorer" | "newTerminal" | "automations" | "workflows" | "workItems" | "reviews" | "issues" | "canvases" | "worktrees" | "documentation" | "bookmarks" | "about" | "skills" | "plugins" | "settings" | "prompts" | "nextPrompt"
+  | "help" | "palette" | "openProject" | "editFile" | "projectEditor" | "externalEditor" | "fileExplorer" | "builtInBrowser" | "newTerminal" | "automations" | "workflows" | "workItems" | "reviews" | "issues" | "canvases" | "worktrees" | "documentation" | "bookmarks" | "about" | "skills" | "plugins" | "settings" | "prompts" | "nextPrompt"
   | "providers" | "models" | "logs" | "mcp" | "config" | "focusSidebar" | "toggleNavigator" | "focusPrompt" | "focusAskFile" | "modelSelector"
   | "usage" | "sessionInfo" | "reminders" | "messagePrevious" | "messageNext" | "messageFirst" | "messageLatest" | "bookmarkPrevious" | "bookmarkNext" | "bookmarkSession"
   | "attachFiles" | "attachFolder" | "attachIssues"
@@ -51,6 +51,7 @@ export const commandDefinitions: readonly CommandDefinition[] = Object.freeze([
   { id: "projectEditor", name: "editor", label: "Project Editor", description: "Open the code editor of the project with its files.", category: "General", hints: ["Ctrl+E Ctrl+E"], search: "code editor files explorer tree folders project_editor" },
   { id: "externalEditor", name: "external_editor", label: "External Editor", description: "Open the folder of the session or of the project in the external editor chosen in Settings.", category: "General", search: "vscode visual studio code cursor windsurf zed sublime open_in" },
   { id: "fileExplorer", name: "file_explorer", label: "File Manager", description: "Show the folder of the session or of the project in the file manager of the system.", category: "General", search: "explorer finder folder reveal show_in_folder files" },
+  { id: "builtInBrowser", name: "browser", label: "Browser", description: "Open the built-in browser of the session beside it, in a tab of its own.", category: "General", search: "web page localhost preview built-in browser site app" },
   { id: "newTerminal", name: "terminal", label: "New Terminal", description: "Open a terminal in the folder of the session or of the project.", category: "General", keys: ["Ctrl+G Ctrl+J", "Ctrl+`"], search: "shell console command line powershell bash new_terminal" },
   { id: "automations", name: "automations", label: "Automations", description: "Open the automations: prompts that start a session by themselves.", category: "General", keys: ["Ctrl+G Ctrl+M"], search: "schedule cron trigger daily hourly weekly task routine recurring" },
   { id: "workflows", name: "workflows", label: "Workflows", description: "Open the workflows: the scripts of the library and their runs.", category: "General", search: "code mode scripts script library workflow runs run steps exec" },

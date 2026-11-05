@@ -5,7 +5,7 @@ import { sessionTabDrop } from "./sessionTabDrag";
 import type { WorkspaceSnapshot } from "#neoastra";
 import { closeDraftTab, closePreviewTab, closeSessionTab, emptySessionTabs, openDraftTab, openSessionTab, pinSessionTab, sessionTabLimit, type DraftTab, type SessionTab, type SessionTabs } from "./sessionTabs";
 import { activeDockNodeId, createSessionTabModel, cycleDockTab, draftNodeId, draftTabAction, fileTabAction, ownsSessionTabContent, reconcileSessionTabModel, sessionDraftNodeId, sessionLayoutActionAllowed, sessionNodeId, sessionTabAction, sessionTabPresentation, shownDraftNodeId, tabMiddleClickAction } from "./sessionTabLayout";
-import { activateFileTab, canvasTab, changesTab, claudeCodeTab, closeFileTab, dropClaudeCodeTab, openClaudeCodeTab, documentationTab, editorTab, emptyFileTabs, fileNodeId, isChangesTab, openFileTab, terminalTab, type FileTab } from "./fileTabs";
+import { activateFileTab, browserTab, canvasTab, changesTab, claudeCodeTab, closeFileTab, dropClaudeCodeTab, openClaudeCodeTab, documentationTab, editorTab, emptyFileTabs, fileNodeId, isChangesTab, openFileTab, terminalTab, type FileTab } from "./fileTabs";
 
 const tab = (id: string) => ({ projectId: "p", sessionId: id, path: "/p" });
 const snapshot: WorkspaceSnapshot = { configured: true, projectsTruncated: false, sessionsTruncated: false, displayTextTruncated: false,
@@ -409,6 +409,32 @@ test("a changes tab opens in a pane on the right; the next one joins it and both
   reconcileSessionTabModel(model, state, label, files, named);
   assert.equal(model.getNodeById(fileNodeId(first)), undefined);
   assert.equal(model.getNodeById(pane.getId()), undefined);
+});
+
+test("the browser of a session opens in a pane on the right of what is shown, and moves and closes like any tab", () => {
+  const model = createSessionTabModel(), state = both();
+  const named = (file: FileTab) => file.view === "browser" ? `Browser · ${file.sessionId}` : file.view;
+  reconcileSessionTabModel(model, state, label, emptyFileTabs(), named);
+  const sessions = model.getActiveTabset()!;
+  let files = openFileTab(emptyFileTabs(), browserTab({ id: "one", title: "One" }));
+  reconcileSessionTabModel(model, state, label, files, named);
+  const node = model.getNodeById(fileNodeId(browserTab({ id: "one" }))) as TabNode;
+  assert.equal(node.getComponent(), "browser");
+  assert.equal(node.getName(), "Browser · one");
+  const pane = node.getParent() as TabSetNode;
+  assert.notEqual(pane, sessions, "Its own pane.");
+  const row = pane.getParent()!.getChildren();
+  assert.ok(row.indexOf(pane) > row.indexOf(sessions), "On the right of the session.");
+  assert.equal(sessions.getTabNodes().length, 2, "The sessions stay where they were.");
+  // Opened again it is the same tab: a session has one browser.
+  files = openFileTab(files, browserTab({ id: "one", title: "Renamed" }));
+  assert.equal(files.open.length, 1);
+  const move = Actions.moveNode(node.getId(), sessions.getId(), DockLocation.CENTER, -1, true);
+  assert.equal(sessionLayoutActionAllowed(model, move, state, snapshot, () => true, files), true);
+  files = closeFileTab(files, browserTab({ id: "one" }));
+  reconcileSessionTabModel(model, state, label, files, named);
+  assert.equal(model.getNodeById(fileNodeId(browserTab({ id: "one" }))), undefined);
+  assert.equal(model.getNodeById(pane.getId()), undefined, "The pane goes with its last tab.");
 });
 
 test("a terminal opens in a pane under the tabs, a third of the height; the next one joins it and closing the last one gives the room back", () => {

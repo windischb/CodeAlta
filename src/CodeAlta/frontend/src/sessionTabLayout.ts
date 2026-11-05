@@ -2,7 +2,7 @@ import { Actions, DockLocation, Model, RowNode, TabNode, TabSetNode, type Action
 import type { WorkspaceSnapshot } from "#neoastra";
 import { draftKey, draftTabLimit, draftTabOf, hasDraftTab, isPreviewTab, openSessionTab, reconcileSessionTabs, resolveDraftTab, resolveSessionTab, selectedTab, sessionTabLimit, singleSessionTab, tabKey,
   type DraftTab, type SessionTab, type SessionTabMode, type SessionTabs } from "./sessionTabs";
-import { emptyFileTabs, fileNodeId, fileTabLimit, isChangesTab, isClaudeCodeTab, isTerminalTab, type FileTab, type FileTabs } from "./fileTabs";
+import { emptyFileTabs, fileNodeId, fileTabLimit, isBrowserTab, isChangesTab, isClaudeCodeTab, isTerminalTab, type FileTab, type FileTabs } from "./fileTabs";
 
 const panelId = "session-tabs-panel";
 // Presentation only: never persisted in the session list, recent history or draft owners.
@@ -151,6 +151,11 @@ export function reconcileSessionTabModel(model: Model, state: SessionTabView, la
       continue;
     }
     const target = home();
+    if (isBrowserTab(file)) {
+      // The browser of a session opens beside what is shown, in a pane of its own: the session on the left, its page on the right.
+      model.doAction(Actions.addTab({ type: "tab", id, name, component: "browser" }, target, DockLocation.RIGHT, -1, false));
+      continue;
+    }
     if (!isChangesTab(file) && !isTerminalTab(file)) { model.doAction(Actions.addTab({ type: "tab", id, name, component: "editor" }, target, DockLocation.CENTER, -1, false)); continue; }
     // The pane that already holds a tab of the same kind.
     const alike = isChangesTab(file) ? changeIds : terminalIds;

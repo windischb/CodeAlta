@@ -70,7 +70,7 @@ import { createProjectDeletion, projectDeleteCurrent, type ProjectDeleteTarget }
 import { browserActivation } from "./sessionBrowser";
 import { backgroundSessionTabs, closeDraftTab, closePreviewTab, closeSessionTab, draftKey, draftTabOf, emptySessionTabs, hasDraftTab, openDraftTab, openSessionTab, persistSessionTabs, pinSessionTab, pruneSessionPaneOwners, reconcileSessionTabs, resolveSessionTab, restoreSessionTabs, selectedTab, sessionPaneKey, sessionTabsKey, singleSessionTab, tabKey,
   type DraftTab, type SessionTab, type SessionTabMode, type SessionTabs as SessionTabsState } from "./sessionTabs";
-import { activateFileTab, claudeCodeTabProvider, automationsTab, isWorkflowsTab, workflowsTab, isWorkflowRunTab, workflowRunTab,bookmarksTab, canvasTab, canvasesTab, documentationTab, isBookmarksTab, isCanvasTab, isCanvasesTab, isDocumentationTab, refreshCanvasTab, isIssuesTab, issuesTab, isWorkItemsTab, workItemsTab, changesTab, closeFileTab, editorTab, emptyFileTabs, fileTabKey, isAutomationsTab, isChangesTab, isEditorTab, isFolderTab, isTerminalTab, fileTabsKey, openFileTab, persistFileTabs, pluginEditorTab, pluginFolderPrefix, diskEditorTab, diskFolderPrefix, reconcileFileTabs, reconcileTerminalTabs, reopenTabKind, resolveFileTab, restoreFileTabs, restoreLegacyFiles, sameFileTab, skillEditorTab, terminalTab, fileNodeId, type FileTab, type FileTabs, type TabKind, claudeCodeTab, dropClaudeCodeTab, isClaudeCodeTab, openClaudeCodeTab } from "./fileTabs";
+import { activateFileTab, browserTab, isBrowserTab, claudeCodeTabProvider, automationsTab, isWorkflowsTab, workflowsTab, isWorkflowRunTab, workflowRunTab,bookmarksTab, canvasTab, canvasesTab, documentationTab, isBookmarksTab, isCanvasTab, isCanvasesTab, isDocumentationTab, refreshCanvasTab, isIssuesTab, issuesTab, isWorkItemsTab, workItemsTab, changesTab, closeFileTab, editorTab, emptyFileTabs, fileTabKey, isAutomationsTab, isChangesTab, isEditorTab, isFolderTab, isTerminalTab, fileTabsKey, openFileTab, persistFileTabs, pluginEditorTab, pluginFolderPrefix, diskEditorTab, diskFolderPrefix, reconcileFileTabs, reconcileTerminalTabs, reopenTabKind, resolveFileTab, restoreFileTabs, restoreLegacyFiles, sameFileTab, skillEditorTab, terminalTab, fileNodeId, type FileTab, type FileTabs, type TabKind, claudeCodeTab, dropClaudeCodeTab, isClaudeCodeTab, openClaudeCodeTab } from "./fileTabs";
 import { closeSessionTabs, shownAfterClosing, type DockTab, type DockTabs } from "./sessionTabClosing";
 import { createFileEditors } from "./editor/fileEditors";
 import { adoptLegacyFiles, editorStorageKey } from "./editor/editorWorkbench";
@@ -250,6 +250,10 @@ import { TimelineEmphasisProvider } from "./timelineEmphasis/useTimelineEmphasis
 import { StorageSettings } from "./storage/StorageSettings";
 import { useStorageMaintenance } from "./storage/useStorageMaintenance";
 import { storage } from "#neoastra";
+import { browser as browserApi } from "#neoastra";
+import { BrowserTab } from "./browser/BrowserTab";
+import { createBrowserHub } from "./browser/browserHub";
+import { createNativeViewOcclusion } from "./browser/nativeViewOcclusion";
 import { machines as machinesApi } from "#neoastra";
 import { speech as speechApi } from "#neoastra";
 import { mcpApps as mcpAppsApi } from "#neoastra";
@@ -376,6 +380,7 @@ import "./windows/windows.css";
 import "./explorer/explorer.css";
 import "./labels/labels.css";
 import "./terminal/terminal.css";
+import "./browser/browser.css";
 import "./automations/automations.css";
 import "./workflows/workflows.css";
 import "./workItems/workItems.css";
@@ -2747,6 +2752,11 @@ function App({ initialWindow = null }: { initialWindow?: WindowsCurrentResponse 
   }
   const terminalEpoch = owned ? status?.hostEpoch ?? null : null;
   useEffect(() => terminalEpoch ? terminalWorkspace.hub.connect(terminalEpoch) : undefined, [terminalWorkspace, terminalEpoch]);
+  // The built-in browser of the sessions: one link to the host for this window, and what is drawn above its views.
+  const [browserHub] = useState(() => createBrowserHub(browserApi));
+  const [viewOcclusion] = useState(() => createNativeViewOcclusion());
+  const browserSupported = useSyncExternalStore(browserHub.subscribe, browserHub.supported);
+  useEffect(() => terminalEpoch ? browserHub.connect(terminalEpoch) : undefined, [browserHub, terminalEpoch]);
   useEffect(() => { setFileTabs(state => reconcileTerminalTabs(state, new Set(terminalList.map(terminal => terminal.id)))); }, [terminalList]);
   // The automations belong to the application too: this window lists them and is told when they change.
   const [automationsHub] = useState(() => createAutomationsHub(automations));
@@ -3576,6 +3586,7 @@ function App({ initialWindow = null }: { initialWindow?: WindowsCurrentResponse 
       case "moveTabToNewWindow": return !!windowsState.current && (!!fileTabs.active || !!tabs.active);
       case "editFile": case "projectEditor": case "worktrees": return view === "workspace" && !!editedProject();
       case "newTerminal": return view === "workspace" && !!terminalOrigin();
+      case "builtInBrowser": return ownedSession && !!selectedSession && browserSupported === true;
       case "externalEditor": case "fileExplorer": { const origin = view === "workspace" ? terminalOrigin() : null; return !!origin && !!(origin.projectId || origin.sessionId); }
       case "automations": case "workflows": case "workItems": case "reviews": case "issues": case "canvases": case "documentation": case "bookmarks": return owned;
       case "spaces": case "newSpace": return owned && spacesState.available;
@@ -3662,6 +3673,7 @@ function App({ initialWindow = null }: { initialWindow?: WindowsCurrentResponse 
       case "projectEditor": openProjectEditor(); break;
       case "worktrees": openWorktrees(); break;
       case "newTerminal": { const origin = terminalOrigin(); if (origin) void createTerminal(origin.projectId, origin.sessionId); break; }
+      case "builtInBrowser": if (selectedSession) openFile(browserTab({ id: selectedSession.id, title: selectedSession.title })); break;
       // The folder a terminal would start in: the one the session works in, else the folder of the project.
       case "externalEditor": case "fileExplorer": {
         const origin = terminalOrigin();
@@ -6197,6 +6209,9 @@ function App({ initialWindow = null }: { initialWindow?: WindowsCurrentResponse 
               : isWorkflowRunTab(tab)
               ? <RunTab key={fileTabKey(tab)} api={workflowsApi} epoch={!status ? undefined : owned ? status.hostEpoch : null} runId={tab.key ?? ""}
                 visible={visible && view === "workspace" && !settingsOpen} onActivate={activateShown(tab, visible)} onGone={() => closeFile(tab)} />
+              : isBrowserTab(tab)
+              ? <BrowserTab key={fileTabKey(tab)} hub={browserHub} occlusion={viewOcclusion} sessionId={tab.sessionId ?? ""}
+                visible={visible && view === "workspace" && !settingsOpen} onActivate={activateShown(tab, visible)} />
               : isTerminalTab(tab)
               ? <TerminalPanel key={fileTabKey(tab)} workspace={terminalWorkspace} id={tab.terminalId ?? ""} terminal={terminalList.find(terminal => terminal.id === tab.terminalId)}
                 visible={visible && view === "workspace" && !settingsOpen} active={visible && sameFileTab(fileTabs.active, tab)} look={terminalLook} onLook={changeTerminalLook}

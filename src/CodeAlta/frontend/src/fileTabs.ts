@@ -15,13 +15,14 @@ import type { WorkspaceSnapshot } from "#neoastra";
  * shows before the plugin has started: the title (`name`) and the `icon`, kept up to date by the plugin, and `plugin`, the id
  * of the folder of the plugin package, which says where to rebuild it and open its source when it is not running.
  */
-export type FileTab = Readonly<{ projectId: string; projectPath: string; view: "editor" | "changes" | "terminal" | "automations" | "workflows" | "workflowRun" | "workItems" | "issues" | "canvases" | "canvas" | "documentation" | "bookmarks" | "claudeCode";
+export type FileTab = Readonly<{ projectId: string; projectPath: string; view: "editor" | "changes" | "terminal" | "automations" | "workflows" | "workflowRun" | "workItems" | "issues" | "canvases" | "canvas" | "documentation" | "bookmarks" | "claudeCode" | "browser";
   terminalId?: string; name?: string; pluginKey?: string; canvasId?: string; sessionId?: string; key?: string; icon?: string; plugin?: string; origin?: string }>;
 export type FileTabs = Readonly<{ open: readonly FileTab[]; active: FileTab | null; closed: readonly FileTab[] }>;
 export const fileTabsKey = "codealta.desktop.fileTabs.v1";
 export const fileTabLimit = 32;
 export const emptyFileTabs = (): FileTabs => ({ open: [], active: null, closed: [] });
 export const fileTabKey = (tab: FileTab) => JSON.stringify(tab.view === "terminal" ? [tab.projectId, tab.view, tab.terminalId]
+  : tab.view === "browser" ? ["", tab.view, tab.sessionId ?? ""]
   : tab.view === "claudeCode" || tab.view === "workflowRun" ? [tab.projectId, tab.view, tab.key]
   : tab.view === "canvas" ? [tab.sessionId ? "" : tab.projectId, tab.view, tab.pluginKey, tab.canvasId, tab.sessionId ?? "", tab.key ?? ""] : [tab.projectId, tab.view]);
 export const isChangesTab = (tab: FileTab) => tab.view === "changes";
@@ -54,6 +55,13 @@ export const documentationTab: FileTab = Object.freeze({ projectId: "", projectP
 export const isBookmarksTab = (tab: FileTab) => tab.view === "bookmarks";
 export const bookmarksTab: FileTab = Object.freeze({ projectId: "", projectPath: "", view: "bookmarks" });
 export const isCanvasTab = (tab: FileTab) => tab.view === "canvas";
+/**
+ * The built-in browser of a session (`view: "browser"`): its browser tabs, its address bar and the place of the page in
+ * front. A session has one, whatever window holds it; `name` is the title of the session when the tab was opened.
+ */
+export const isBrowserTab = (tab: FileTab) => tab.view === "browser";
+export const browserTab = (session: Readonly<{ id: string; title?: string | null }>): FileTab =>
+  ({ projectId: "", projectPath: "", view: "browser", sessionId: session.id, ...session.title ? { name: session.title.slice(0, 200) } : {} });
 /** Which canvas a tab shows, and about what: the plugin and the canvas it declares, the project and the session when it has them, and its key. */
 export type CanvasTabIdentity = Readonly<{ pluginKey: string; canvasId: string; project?: Readonly<{ id: string; path: string }> | null; sessionId?: string | null; key?: string | null }>;
 /** What a tab of a canvas shows besides its identity: the title and the icon the plugin gave, and the folder of the plugin. */
@@ -205,7 +213,7 @@ export function reconcileFileTabs(state: FileTabs, snapshot: WorkspaceSnapshot):
   // The folder of a plugin or of a skill is not a project of the workspace: its editor says so itself when the folder is gone.
   // A canvas of the application lasts; one of a project or of a session lasts as long as they are in the space.
   const canvas = (tab: FileTab) => (tab.projectId === "" || resolveFileTab(snapshot, tab)) && (tab.sessionId === undefined || snapshot.sessions.some(session => session.id === tab.sessionId));
-  const lasting = (tab: FileTab) => isClaudeCodeTab(tab) ? !!resolveFileTab(snapshot, tab) : isTerminalTab(tab) || isAutomationsTab(tab) || isWorkflowsTab(tab) || isWorkflowRunTab(tab) || isWorkItemsTab(tab) || isIssuesTab(tab) || isCanvasesTab(tab) || isDocumentationTab(tab) || isBookmarksTab(tab) || isFolderTab(tab) || (isCanvasTab(tab) ? canvas(tab) : resolveFileTab(snapshot, tab));
+  const lasting = (tab: FileTab) => isBrowserTab(tab) ? snapshot.sessions.some(session => session.id === tab.sessionId) : isClaudeCodeTab(tab) ? !!resolveFileTab(snapshot, tab) : isTerminalTab(tab) || isAutomationsTab(tab) || isWorkflowsTab(tab) || isWorkflowRunTab(tab) || isWorkItemsTab(tab) || isIssuesTab(tab) || isCanvasesTab(tab) || isDocumentationTab(tab) || isBookmarksTab(tab) || isFolderTab(tab) || (isCanvasTab(tab) ? canvas(tab) : resolveFileTab(snapshot, tab));
   const open = state.open.filter(lasting);
   const closed = state.closed.filter(lasting);
   const active = open.find(tab => sameFileTab(tab, state.active)) ?? null;
@@ -255,6 +263,8 @@ function storedTab(value: unknown): { tab: FileTab; file: string | null } | null
   if (stored.view === "documentation") return stored.projectId === "" && stored.projectPath === "" ? { tab: documentationTab, file: null } : null;
   if (stored.view === "bookmarks") return stored.projectId === "" && stored.projectPath === "" ? { tab: bookmarksTab, file: null } : null;
   if (stored.view === "canvas") { const tab = storedCanvasTab(stored); return tab ? { tab, file: null } : null; }
+  if (stored.view === "browser") return stored.projectId === "" && stored.projectPath === "" && text(stored.sessionId, 128) && stored.path === undefined
+    ? { tab: browserTab({ id: stored.sessionId, title: text(stored.name, 200) ? stored.name : null }), file: null } : null;
   if (!text(stored.projectId, 256) || !text(stored.projectPath, 4096)) return null;
   const project = { id: stored.projectId, path: stored.projectPath };
   // The host that gave the id of a folder of the disk is gone with the application that stored the tab.

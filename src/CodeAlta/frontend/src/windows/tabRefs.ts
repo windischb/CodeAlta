@@ -1,6 +1,6 @@
 // What the host and `alta window` call a tab: one text for each tab, whichever window holds it. The host routes the
 // requests of a tab by it (`editor:<project>`, `changes:<project>`, `documentation`), so the two sides name tabs alike.
-import { isCanvasTab, isClaudeCodeTab, isTerminalTab, type FileTab } from "../fileTabs";
+import { isBrowserTab, isCanvasTab, isClaudeCodeTab, isTerminalTab, type FileTab } from "../fileTabs";
 import type { SessionTab } from "../sessionTabs";
 
 /** The reference of the tab of a session. */
@@ -10,6 +10,8 @@ export const sessionTabRef = (sessionId: string) => `session:${sessionId}`;
 export function fileTabRef(tab: FileTab): string {
   if (isTerminalTab(tab)) return `terminal:${tab.terminalId ?? ""}`;
   if (isClaudeCodeTab(tab)) return `claudeCode:${tab.key ?? ""}`;
+  // The browser of a session: one for each session, whichever window holds it.
+  if (isBrowserTab(tab)) return `browser:${tab.sessionId ?? ""}`;
   if (tab.view === "workflowRun") return `workflowRun:${tab.key ?? ""}`;
   if (isCanvasTab(tab)) return `canvas:${tab.pluginKey ?? ""}/${tab.canvasId ?? ""}/${tab.sessionId ? "" : tab.projectId}/${tab.sessionId ?? ""}/${tab.key ?? ""}`;
   // The tabs of a project, or of the folder of a plugin, a skill or a file a link named: one for each.
@@ -29,6 +31,8 @@ export function spaceBound(tab: Readonly<{ session: SessionTab } | { file: FileT
   if ("session" in tab) return true;
   const file = tab.file;
   if (isTerminalTab(file)) return false;
+  // The browser of a session goes where its session may go.
+  if (isBrowserTab(file)) return true;
   if (isCanvasTab(file)) return file.projectId !== "" || !!file.sessionId;
   return file.view === "editor" || file.view === "changes" || file.view === "claudeCode";
 }

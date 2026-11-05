@@ -13,7 +13,7 @@ import type { ElsewhereKind } from "./sessionLeases/sessionLeases";
 import { createSessionTabModel, draftNodeId, draftTabAction, fileTabAction, reconcileSessionTabModel, sessionDraftNodeId, sessionLayoutActionAllowed, sessionNodeId, sessionTabAction, shownDraftNodeId, tabMiddleClickAction,
   type SessionTabView as Tabs } from "./sessionTabLayout";
 import { ProviderIcon } from "./ProviderIcon";
-import { emptyFileTabs, fileNodeId, isAutomationsTab, isWorkflowsTab, isWorkflowRunTab, isClaudeCodeTab, isBookmarksTab, isCanvasTab, isCanvasesTab, isDocumentationTab, isChangesTab, isIssuesTab, isPluginTab, isSkillTab, isTerminalTab, isWorkItemsTab, sameFileTab, type FileTab, type FileTabs } from "./fileTabs";
+import { emptyFileTabs, fileNodeId, isBrowserTab, isAutomationsTab, isWorkflowsTab, isWorkflowRunTab, isClaudeCodeTab, isBookmarksTab, isCanvasTab, isCanvasesTab, isDocumentationTab, isChangesTab, isIssuesTab, isPluginTab, isSkillTab, isTerminalTab, isWorkItemsTab, sameFileTab, type FileTab, type FileTabs } from "./fileTabs";
 import { ActivitySpinner } from "./ActivitySpinner";
 import { CanvasIcon } from "./canvases/CanvasIcon";
 import { terminalTabLabel } from "./terminal/terminals";
@@ -99,6 +99,11 @@ export function FileTabLabel({ tab, project, dirty, terminal, status }: {
   status?: string;
 }) {
   const { t } = useShellLanguage();
+  if (isBrowserTab(tab)) {
+    // The browser of a session is named after its session: `project` is the title of that session here.
+    const label = `${t("Browser")} · ${project}`;
+    return <span className="session-tab-title"><span className="session-tab-label" title={label}>{label}</span></span>;
+  }
   if (isTerminalTab(tab)) {
     // The title a terminal was given, or the folder it is in; a mark when it has ended or asks for attention.
     const label = terminal ? terminalTabLabel(terminal, t("Terminal")) : t("Terminal");
@@ -234,9 +239,12 @@ export function SessionTabStrip({ state, snapshot, drafts, select, close, reopen
   const label = (tab: SessionTab | null) => tab ? `${plainTitle(snapshot && resolveSessionTab(snapshot, tab)?.title || t("Unavailable session"))} - ${
     tab.projectId === null ? t("Chat") : snapshot?.projects.find(project => project.id === tab.projectId)?.name ?? t("Unavailable project")}` : newSessionLabel ?? t("New session");
   // The name of a canvas tab is its title: the project is the one of the catalog.
-  const projectName = (file: FileTab) => (isCanvasTab(file) ? undefined : file.name) ?? snapshot?.projects.find(project => project.id === file.projectId)?.name ?? t("Unavailable project");
+  const projectName = (file: FileTab) => isBrowserTab(file)
+    ? plainTitle(snapshot?.sessions.find(session => session.id === file.sessionId)?.title || file.name || t("Unavailable session"))
+    : (isCanvasTab(file) ? undefined : file.name) ?? snapshot?.projects.find(project => project.id === file.projectId)?.name ?? t("Unavailable project");
   const shownTerminal = (file: FileTab) => isTerminalTab(file) && file.terminalId ? terminal?.(file.terminalId) : undefined;
   const fileLabel = (file: FileTab) => {
+    if (isBrowserTab(file)) return `${t("Browser")} · ${projectName(file)}`;
     if (isAutomationsTab(file)) return t("Automations");
     if (isWorkflowsTab(file)) return t("Workflows");
     if (isWorkflowRunTab(file)) return `${file.name ?? file.key ?? ""} · ${t("Workflows")}`;
@@ -491,7 +499,8 @@ export function SessionTabStrip({ state, snapshot, drafts, select, close, reopen
         const file = files.open.find(value => fileNodeId(value) === node.getId());
         if (file) {
           const shown = shownTerminal(file);
-          const look = isTerminalTab(file) ? { icon: "terminal" as const, tone: shown && !shown.running ? "muted" : "green" }
+          const look = isBrowserTab(file) ? { icon: "browse" as const, tone: "azure" }
+            : isTerminalTab(file) ? { icon: "terminal" as const, tone: shown && !shown.running ? "muted" : "green" }
             : isChangesTab(file) ? { icon: "changes" as const, tone: "orange" }
             : isAutomationsTab(file) ? { icon: "automation" as const, tone: "gold" }
             : isWorkflowsTab(file) || isWorkflowRunTab(file) ? { icon: "workflow" as const, tone: "blue" }

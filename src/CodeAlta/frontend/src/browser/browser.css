@@ -1,0 +1,29 @@
+/* The built-in browser of a session, in a tab of the window. The page itself is a native view of the host, placed over
+   `.browser-place`: nothing of this stylesheet draws it. */
+
+.browser-tab { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; color: var(--text); background: var(--bg); }
+
+/* The strip of the browser tabs of the session. */
+.browser-strip { display: flex; flex: none; align-items: flex-end; gap: 2px; min-height: 32px; padding: 4px 6px 0; overflow: hidden; border-bottom: 1px solid var(--line); background: var(--panel); }
+.browser-strip-tab { display: flex; flex: 0 1 190px; align-items: center; min-width: 46px; margin-bottom: -1px; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; color: var(--muted); }
+.browser-strip-tab:hover { color: var(--text); background: color-mix(in srgb, var(--text) 7%, transparent); }
+.browser-strip-tab.selected { border-color: var(--line); color: var(--text); background: var(--bg); box-shadow: inset 0 2px 0 var(--accent); }
+.browser-strip-select { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; height: 27px; margin: 0; padding: 0 2px 0 8px; border: 0; border-radius: 6px 0 0 0; color: inherit; background: none; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.browser-strip-select:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.browser-strip-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-strip-loading { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: browser-loading 1s ease-in-out infinite alternate; }
+@keyframes browser-loading { from { opacity: 0.3; } to { opacity: 1; } }
+.browser-strip-close.bp6-button { flex: none; min-width: 18px; min-height: 18px; margin-right: 4px; padding: 0; }
+.browser-strip-new.bp6-button { flex: none; margin-bottom: 3px; }
+
+/* The toolbar: history and the address. */
+.browser-toolbar { display: flex; flex: none; align-items: center; gap: 2px; min-height: 36px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+.browser-toolbar > .bp6-button { flex: none; }
+.browser-address.bp6-input { flex: 1; min-width: 0; height: 26px; margin: 0 4px; padding: 0 11px; border-radius: 13px; font-size: 12.5px; }
+.browser-notice { flex: none; margin: 0; padding: 6px 12px; border-bottom: 1px solid var(--line); color: var(--text); background: var(--accent-soft); font-size: 12px; line-height: 1.4; }
+
+/* The place of the browser tab in front. It is empty under the view; while the view is hidden behind something of the
+   window it shows a picture of the page. */
+.browser-place { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; background: var(--panel-2); }
+.browser-still { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+.browser-empty.bp6-non-ideal-state { position: absolute; inset: 0; padding: 20px; }
