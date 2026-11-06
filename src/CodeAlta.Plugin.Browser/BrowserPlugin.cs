@@ -896,6 +896,8 @@ public sealed class BrowserPlugin : PluginBase
             if (replaced is not null) await RetireAsync(replaced).ConfigureAwait(false);
         }
 
+        // The browser the user shows beside the session is theirs: every page has the toolbar, and the agent is told its tabs.
+        if (shown is not null) session.MarkOpenedByUser();
         // The UI tools of the window have the same names: the window takes them back.
         _host.Activated?.Invoke(sessionId);
         // What an agent does in the browser built into the window is seen where it happens: its tab beside the session.

@@ -101,6 +101,9 @@ internal sealed class BrowserAgentSession : IAsyncDisposable
     /// </summary>
     public bool OpenedByUser => _openedByUser;
 
+    /// <summary>Records that the user opened this browser, where it is theirs without <see cref="ShowAsync"/>: shown in the window.</summary>
+    internal void MarkOpenedByUser() => _openedByUser = true;
+
     /// <summary>Gets or sets the address of the start page CodeAlta made for this browser, once the user opened it.</summary>
     internal Uri? StartPage { get; set; }
 

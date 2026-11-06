@@ -160,6 +160,7 @@ public sealed class BrowserPluginTests
 
         await RunAsync(plugin, folder, "s1", ["browser", "activate"]);
         Assert.AreEqual(BrowserPluginHost.EmbeddedId, plugin.SessionOf("s1")?.Target.Browser.Id, "the browser the user sees beside the session");
+        Assert.IsTrue(plugin.SessionOf("s1")!.OpenedByUser, "it is the user's: every page has the toolbar");
 
         await RunAsync(plugin, folder, "s2", ["browser", "activate", "--profile", "persistent"]);
         Assert.AreNotEqual(BrowserPluginHost.EmbeddedId, plugin.SessionOf("s2")?.Target.Browser.Id, "a profile named is a browser asked for");
