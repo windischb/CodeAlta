@@ -39,6 +39,7 @@ internal sealed class MacBrowserViews : IBrowserViews, IAsyncDisposable
     private readonly NeoApplication _application;
     private readonly NeoWindow _window;
     private readonly string _userDataRoot;
+    private readonly int[] _reservedPorts;
     private readonly UiContext _context;
     private readonly List<MacBrowserView> _live = [];
     private Task<NeoEnvironment>? _environment;
@@ -49,14 +50,16 @@ internal sealed class MacBrowserViews : IBrowserViews, IAsyncDisposable
     /// <param name="application">The application.</param>
     /// <param name="window">The main window, on which the views are created.</param>
     /// <param name="userDataRoot">The folder of the browser data of the views, which no other browser environment uses.</param>
+    /// <param name="reservedPorts">The ports of CodeAlta on this computer, which no document or frame of a view loads.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="userDataRoot"/> is blank.</exception>
-    internal MacBrowserViews(NeoApplication application, NeoWindow window, string userDataRoot)
+    internal MacBrowserViews(NeoApplication application, NeoWindow window, string userDataRoot, IReadOnlyList<int> reservedPorts)
     {
         ArgumentNullException.ThrowIfNull(application);
         ArgumentNullException.ThrowIfNull(window);
         ArgumentException.ThrowIfNullOrWhiteSpace(userDataRoot);
-        (_application, _window, _userDataRoot) = (application, window, Path.GetFullPath(userDataRoot));
+        ArgumentNullException.ThrowIfNull(reservedPorts);
+        (_application, _window, _userDataRoot, _reservedPorts) = (application, window, Path.GetFullPath(userDataRoot), [.. reservedPorts]);
         _context = new UiContext(application.Dispatcher);
     }
 
@@ -184,10 +187,11 @@ internal sealed class MacBrowserViews : IBrowserViews, IAsyncDisposable
         {
             (_owner, _view, _native) = (owner, view, native);
             State = Read();
-            // A document may go where the browser may be sent; a frame of it loads what a frame loads.
+            // A document may go where the browser may be sent; a frame of it loads what a frame loads. Neither reaches
+            // the ports of CodeAlta, whose server refuses the requests of pages besides.
             view.NavigationRequested = request =>
             {
-                var allowed = !request.IsMainFrame || BrowserAddress.IsAllowed(request.Uri);
+                var allowed = (!request.IsMainFrame || BrowserAddress.IsAllowed(request.Uri)) && !BrowserAddress.IsReserved(request.Uri, owner._reservedPorts);
                 if (allowed && request.IsMainFrame) Navigations++;
                 return ValueTask.FromResult(allowed ? NeoNavigationDecision.Allow : NeoNavigationDecision.Cancel);
             };

@@ -233,6 +233,18 @@ public sealed class DesktopBrowsersTests
         Assert.IsNull(browsers.Peek(Session)!.Pages.Single(page => page.Id == first).Dialog);
     }
 
+    [TestMethod]
+    [DataRow("http://127.0.0.1:2582/mcp", true)]
+    [DataRow("http://localhost:2583/", true)]
+    [DataRow("http://[::1]:2582/", true)]
+    [DataRow("http://0.0.0.0:2582/", true)]
+    [DataRow("http://app.localhost:2582/", true)]
+    [DataRow("http://localhost:5173/", false)]
+    [DataRow("http://192.168.1.20:2582/", false)]
+    [DataRow("https://example.com:2582/", false)]
+    public void ThePortsOfCodeAltaOnThisComputer_AreReachedByNoPage(string address, bool reserved)
+        => Assert.AreEqual(reserved, BrowserAddress.IsReserved(new Uri(address), [2582, 2583]));
+
     private static BrowserPlacement Place(string window, double x = 0) => new(window, x, 40, 600, 700);
 
     private sealed class FakeViews : IBrowserViews

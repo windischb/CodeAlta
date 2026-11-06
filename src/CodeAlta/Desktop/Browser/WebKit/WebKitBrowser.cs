@@ -27,6 +27,12 @@ internal sealed class WebKitBrowserConnection(DesktopBrowsers browsers) : IBrows
     {
         ArgumentNullException.ThrowIfNull(options);
         if (string.IsNullOrWhiteSpace(options.SessionId)) throw new BrowserToolException("no-session", "The built-in browser shows the tabs of a session: the session is missing.");
+        // The views of the application share one network: they cannot go through the proxy of a sandbox.
+        if (options.Proxy is not null)
+        {
+            throw new BrowserToolException("sandbox", "A sandboxed session cannot use the built-in browser, which cannot keep to the network of its sandbox: name Chrome, Edge or Firefox instead (alta browser activate --browser chrome).");
+        }
+
         // The tabs the session has, kept from an earlier run too, are the agent's first: it does not open an empty one beside them.
         var state = await browsers.GetAsync(options.SessionId).ConfigureAwait(false);
         if (state.Status == "unsupported") throw new BrowserToolException("not-supported", "The built-in browser is only in CodeAlta Desktop on macOS.");

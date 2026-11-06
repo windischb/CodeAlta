@@ -385,7 +385,8 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
             {
                 // The built-in browser: its views are created on the main window and laid over the page of the window
                 // that shows the browser of their session; its own browser data, no scheme and no bridge of the application.
-                var browserViews = new Browser.MacBrowserViews(application, window, Path.Combine(options.DataRoot, "webview-browser"));
+                var browserViews = new Browser.MacBrowserViews(application, window, Path.Combine(options.DataRoot, "webview-browser"),
+                    DesktopBrowser.ReservedPorts(Mcp.DesktopMcpEndpoint.For(options).Port));
                 browserViewsLifetime = browserViews;
                 var sessionBrowsers = new Browser.DesktopBrowsers(browserViews, new Browser.BrowserFileStore(Path.Combine(options.StateRoot ?? options.CatalogRoot!, "browser-tabs")));
                 browsers = sessionBrowsers;

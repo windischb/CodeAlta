@@ -40,6 +40,21 @@ internal static class BrowserAddress
         return (address.Scheme == Uri.UriSchemeHttp || address.Scheme == Uri.UriSchemeHttps) && address.Host.Length > 0 && address.AbsoluteUri.Length <= MaximumLength;
     }
 
+    /// <summary>
+    /// Whether an address is a port of CodeAlta itself on this computer, which no page of the browser reaches: its MCP
+    /// server and the one of the developer instance.
+    /// </summary>
+    /// <param name="address">The address.</param>
+    /// <param name="reservedPorts">The ports of CodeAlta.</param>
+    internal static bool IsReserved(Uri? address, IReadOnlyCollection<int> reservedPorts)
+    {
+        ArgumentNullException.ThrowIfNull(reservedPorts);
+        if (address is null || !address.IsAbsoluteUri || address.Port < 0 || !reservedPorts.Contains(address.Port)) return false;
+        var host = address.Host.Trim('[', ']');
+        return address.IsLoopback || host.Equals("localhost", StringComparison.OrdinalIgnoreCase) || host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase)
+            || (System.Net.IPAddress.TryParse(host, out var ip) && (System.Net.IPAddress.IsLoopback(ip) || ip.Equals(System.Net.IPAddress.Any) || ip.Equals(System.Net.IPAddress.IPv6Any)));
+    }
+
     // A host that is reached without TLS as a rule: this computer, a private network, a name of the local network.
     private static bool IsLocal(string host)
     {

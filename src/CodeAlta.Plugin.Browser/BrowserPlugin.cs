@@ -834,6 +834,17 @@ public sealed class BrowserPlugin : PluginBase
 
         if (profile.Kind == BrowserProfileKind.User && UserProfileRefusal(settings, askUser is not null || userAsked) is { } refusal) return Activation.Refusal(refusal);
         var usages = Usages(settings);
+        // The browser built into the window has one network for every session: it cannot keep to the one of a sandbox.
+        if (sandbox is not null)
+        {
+            if (string.Equals(browserText, BrowserPluginHost.EmbeddedId, StringComparison.OrdinalIgnoreCase))
+            {
+                return Activation.Refusal($"This session is sandboxed (profile '{sandbox.Profile}'): the built-in browser cannot keep to the network of its sandbox. Use Chrome, Edge or Firefox.");
+            }
+
+            usages = [.. usages.Where(static usage => usage.Browser.Engine != BrowserEngine.Embedded)];
+        }
+
         if (BrowserChoice.Choose(usages, browserText, settings.Browser, profile.Kind, DateTimeOffset.UtcNow, out var notChosen) is not { } choice)
         {
             return Activation.Failed("browser.notFound", notChosen ?? "No browser fits.");

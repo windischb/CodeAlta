@@ -130,6 +130,25 @@ public sealed class BrowserPluginTests
     }
 
     [TestMethod]
+    public async Task ASandboxedSession_NeverBrowsesInTheBuiltInBrowser()
+    {
+        using var folder = new TempFolder();
+        var host = new BrowserPluginHost(folder.Path) { HasUser = true, StartTimeout = BrowserStart };
+        host.Embedded = _ => throw new InvalidOperationException("A sandboxed session never opens it.");
+        host.Sandbox = (_, _) => ValueTask.FromResult<BrowserSandbox?>(new BrowserSandbox("strict", [folder.Path], [folder.Path], null));
+        await using var plugin = await StartAsync(host, new BrowserSettings { Browser = BrowserPluginHost.EmbeddedId });
+
+        var (exit, records) = await RunAsync(plugin, folder, "s1", ["browser", "activate", "--browser", BrowserPluginHost.EmbeddedId]);
+
+        Assert.AreEqual(5, exit);
+        StringAssert.Contains(records[^1].GetProperty("message").GetString(), "cannot keep to the network of its sandbox");
+        Assert.IsFalse(plugin.IsActive("s1"));
+        // Preferred in Settings, it is passed over: the session browses in a browser of this computer, or in none.
+        (_, records) = await RunAsync(plugin, folder, "s1", ["browser", "activate"]);
+        Assert.IsFalse(records[^1].ToString().Contains("built-in", StringComparison.Ordinal), records[^1].ToString());
+    }
+
+    [TestMethod]
     public async Task ASessionClosedWhileItsBrowserStarts_ClosesWhatTheStartOpens()
     {
         var started = new TaskCompletionSource<IBrowserContext>(TaskCreationOptions.RunContinuationsAsynchronously);
