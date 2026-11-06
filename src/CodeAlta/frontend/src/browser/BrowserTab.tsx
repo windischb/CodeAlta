@@ -97,7 +97,18 @@ export function BrowserTab({ hub, occlusion, sessionId, visible, onActivate }: {
     };
   }, [hub, occlusion, sessionId, visible, supported]);
 
-  const editing = draft && draft.page === frontId ? draft.text : null;
+  // A picture of the page in front once it has loaded: WebKit draws nothing while a page waits in a JavaScript dialog,
+  // so the dialog is shown over the page as it was last seen. One picture for each load, of a few milliseconds.
+  const frontLoading = front?.loading ?? true;
+  useEffect(() => {
+    if (!visible || !frontId || frontLoading || asking) return;
+    const timer = setTimeout(() => void hub.capture(sessionId, frontId).then(picture => {
+      if (picture && frontPage.current === frontId && !frontAsks.current) setStill({ page: frontId, ...picture });
+    }), 300);
+    return () => clearTimeout(timer);
+  }, [hub, sessionId, visible, frontId, frontLoading, !!asking]);
+
+  const editing =draft && draft.page === frontId ? draft.text : null;
   const address = editing ?? shownAddress(front);
 
   async function go() {
