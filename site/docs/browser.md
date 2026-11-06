@@ -41,6 +41,28 @@ Look at this page: why is the menu cut off?
 
 Once open, the **Browser** item under the prompt shows its browser and tabs and brings its window to the front, and **Close the browser tabs of this session** in the menu of the session closes it. A browser you opened stays open until you close it, and an agent of the session uses it rather than starting another one, unless it names another browser or profile.
 
+The menu of the session opens the browser of [Settings](#which-browser). The arrow beside the **Browser** item lists the other browsers of this computer, to switch this session to one of them, without changing Settings. CodeAlta asks first, since the tabs of the browser the session has close.
+
+## The built-in browser
+
+On macOS, CodeAlta Desktop has a browser of its own. It opens in a tab beside the session instead of a window of its own. Use it next to the timeline, or drag its tab into a second window.
+
+To open it:
+
+- Make it the preferred browser in **Settings**, **Extensions**, **Browser**, then choose **Open the browser of this session** in the menu of the session.
+- Or, when the session already browses, click the arrow beside its **Browser** item under the prompt and choose **CodeAlta (built-in)**.
+
+Each session has one built-in browser, with tabs like any browser: **+** opens a tab, the address field takes an address such as `localhost:5173`, and a link that opens a new window opens a new tab. The tabs stay with the session and come back when CodeAlta starts again.
+
+The agent of the session works in the same tabs, so you see what it does as it does it. You can ask an agent for it too: `alta browser activate --browser codealta`. The CodeAlta toolbar for [annotations](#annotate-the-pages-of-your-project) works there as in Chrome. When a page shows an alert, a confirmation or a question, the tab shows it over the page until you or the agent answer.
+
+The built-in browser is an addition. It never replaces Chrome, Edge, Firefox or Safari, and the automatic choice never picks it. It has limits:
+
+- It opens `http` and `https` addresses only. It downloads nothing, and refuses the camera, the microphone and the location.
+- It has no trace, heap snapshot, network or device emulation, full-page screenshot, or file upload. Use Chrome or Edge for these.
+- An annotation there gets no style rules or script of its elements: CodeAlta finds their source from their text, their selector and the address of the page.
+- A [sandboxed session](#sandboxed-sessions) never uses it: it cannot keep to the network of a sandbox.
+
 ## Annotate the pages of your project
 
 Show the agent what you mean on the page itself. Ask in any session:
@@ -55,7 +77,7 @@ Open docs/mockups/home.html in the browser.
 
 The agent starts what the app needs as usual, then opens it with `alta browser open`. A file of the project is served by CodeAlta. An address of this computer is a page of the project when the program that listens on its port runs in the folder of the project, such as a dev server the agent started there. On Windows, where CodeAlta cannot read the folder a program runs in, it is the program whose command line names a file or folder of the project, such as Vite or Next.js started from the project. In a browser the agent opened, other pages get no toolbar; in a browser you [opened yourself](#open-the-browser-of-a-session-yourself), every page has it, but CodeAlta looks for the source of its elements only on the pages of the project.
 
-In Chrome and Edge, such a page shows a small **CodeAlta** toolbar at its bottom right:
+In Chrome, Edge and the [built-in browser](#the-built-in-browser), such a page shows a small **CodeAlta** toolbar at its bottom right:
 
 1. Click **Annotate**. The element under the pointer is outlined, with its tag, role, text and size, and what you click or drag does not reach the page. The toolbar stays above the dialogs and the full-screen elements of the page, so their elements can be marked too.
 2. Choose what the note is about:
@@ -95,7 +117,7 @@ The first of these that names a browser wins:
 
 1. **You name one.** "Check it in Firefox" makes the agent ask for Firefox.
 2. **The preferred browser** of **Settings**, **Extensions**, **Browser**.
-3. **Automatic**, the default: the browser you use on this computer. CodeAlta reads when each browser last wrote the files it keeps while you browse, and which browser is the default one of the system. The default browser wins when it was used within a day of the last one.
+3. **Automatic**, the default: the browser you use on this computer, never the built-in one. CodeAlta reads when each browser last wrote the files it keeps while you browse, and which browser is the default one of the system. The default browser wins when it was used within a day of the last one.
 
 Automatic reads file times only, never a history, a cookie or a page, and sends nothing anywhere. `alta browser list` shows the browsers found, their evidence and the choice, and the Browser page of Settings shows the same.
 
@@ -174,7 +196,7 @@ On a Mac with Safari 27 or later, Safari's own MCP server (`safaridriver --mcp`)
 
 ## Sandboxed sessions
 
-A [sandboxed session](sessions/sandbox.md) browses in the isolated profile only. Its browser reaches the network of its sandbox profile, through the same proxy as its commands, and the folders of its sandbox for uploads and screenshots. With a profile without network, it reaches only the local ports the profile lists. It opens no `file:` page: serve the folder with a local server on a port the profile lists.
+A [sandboxed session](sessions/sandbox.md) browses in the isolated profile only, never in the built-in browser. Its browser reaches the network of its sandbox profile, through the same proxy as its commands, and the folders of its sandbox for uploads and screenshots. With a profile without network, it reaches only the local ports the profile lists. It opens no `file:` page: serve the folder with a local server on a port the profile lists.
 
 ## Good to know
 
