@@ -149,6 +149,27 @@ public sealed class BrowserPluginTests
     }
 
     [TestMethod]
+    public async Task TheBuiltInBrowserShownBesideASession_IsTheOneItsAgentTakes_UnlessItNamesAnother()
+    {
+        using var folder = new TempFolder();
+        var shown = true;
+        var host = new BrowserPluginHost(folder.Path) { HasUser = true, StartTimeout = BrowserStart };
+        host.Embedded = _ => throw new InvalidOperationException("Not opened in this test.");
+        host.EmbeddedShown = _ => shown;
+        await using var plugin = await StartAsync(host, new BrowserSettings { Browser = "custom-chrome" });
+
+        await RunAsync(plugin, folder, "s1", ["browser", "activate"]);
+        Assert.AreEqual(BrowserPluginHost.EmbeddedId, plugin.SessionOf("s1")?.Target.Browser.Id, "the browser the user sees beside the session");
+
+        await RunAsync(plugin, folder, "s2", ["browser", "activate", "--profile", "persistent"]);
+        Assert.AreNotEqual(BrowserPluginHost.EmbeddedId, plugin.SessionOf("s2")?.Target.Browser.Id, "a profile named is a browser asked for");
+
+        shown = false;
+        await RunAsync(plugin, folder, "s3", ["browser", "activate"]);
+        Assert.AreNotEqual(BrowserPluginHost.EmbeddedId, plugin.SessionOf("s3")?.Target.Browser.Id, "not shown, it is not chosen");
+    }
+
+    [TestMethod]
     public async Task ASessionClosedWhileItsBrowserStarts_ClosesWhatTheStartOpens()
     {
         var started = new TaskCompletionSource<IBrowserContext>(TaskCreationOptions.RunContinuationsAsynchronously);

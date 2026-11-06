@@ -845,10 +845,14 @@ public sealed class BrowserPlugin : PluginBase
             usages = [.. usages.Where(static usage => usage.Browser.Engine != BrowserEngine.Embedded)];
         }
 
-        if (BrowserChoice.Choose(usages, browserText, settings.Browser, profile.Kind, DateTimeOffset.UtcNow, out var notChosen) is not { } choice)
-        {
-            return Activation.Failed("browser.notFound", notChosen ?? "No browser fits.");
-        }
+        // The browser built into the window that the user shows beside the session is the one of the session, as a
+        // browser the user opened is: an agent that names no other browser nor profile takes it.
+        var shown = browserText is null && profileText is null && _host.EmbeddedShown?.Invoke(sessionId) == true
+            ? usages.FirstOrDefault(usage => usage.Browser.Engine == BrowserEngine.Embedded && usage.Browser.Refusal(profile.Kind) is null) : null;
+        string? notChosen = null;
+        var choice = shown is not null ? new BrowserChoiceResult(shown.Browser, BrowserChoiceSource.User, "shown beside the session")
+            : BrowserChoice.Choose(usages, browserText, settings.Browser, profile.Kind, DateTimeOffset.UtcNow, out notChosen);
+        if (choice is null) return Activation.Failed("browser.notFound", notChosen ?? "No browser fits.");
 
         if (choice.Browser.Engine == BrowserEngine.Safari) return new Activation(null, choice, sandbox, null, null, false);
         var target = new BrowserTarget(choice.Browser, profile, headless || !_host.HasUser);

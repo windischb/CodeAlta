@@ -86,6 +86,12 @@ public sealed class BrowserPluginHost
     /// </summary>
     internal Action<string>? ShowEmbedded { get; set; }
 
+    /// <summary>
+    /// Gets or sets whether a window shows the browser built into the application for a session, which the user opened
+    /// there: an agent of the session that names no browser takes it. Null where there is none.
+    /// </summary>
+    internal Func<string, bool>? EmbeddedShown { get; set; }
+
     /// <summary>The id of the browser built into the application, in the browser choice and in Settings.</summary>
     public const string EmbeddedId = "codealta";
 

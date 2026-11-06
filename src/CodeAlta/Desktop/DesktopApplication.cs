@@ -454,7 +454,11 @@ internal sealed class DesktopApplication(DesktopLaunchOptions options, DesktopLo
                 return new Ui.DesktopUiFiles(ui.FilesDirectory, folders, $"the folder of a project of CodeAlta, or {ui.FilesDirectory}");
             });
             // The browser built into the window shows its tab beside the session it belongs to, when it opens.
-            if (browsers is not null) browserHost.ShowEmbedded = shell.ShowBrowser;
+            if (browsers is not null)
+            {
+                browserHost.ShowEmbedded = shell.ShowBrowser;
+                browserHost.EmbeddedShown = sessionId => browsers.Peek(sessionId) is { Window: not null, Pages.Count: > 0 };
+            }
             IReadOnlyList<Mcp.DesktopMcpTool> McpTools() => Volatile.Read(ref altaTool) is { } alta ? [.. windowTools, alta] : windowTools;
             // The Tailscale network is a choice of Settings, unless the start named the address.
             var tailnet = options.McpHost is null ? new Mcp.DesktopTailnetChoice(shell.McpTailnet, shell.SetMcpTailnet, Mcp.DesktopTailnet.FindAsync) : null;
