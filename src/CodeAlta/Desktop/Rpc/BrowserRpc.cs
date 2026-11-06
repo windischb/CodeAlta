@@ -126,6 +126,17 @@ internal sealed class BrowserService
         return Reply(await _browsers!.CommandAsync(request.SessionId ?? string.Empty, request.PageId ?? string.Empty, command.Value).ConfigureAwait(false));
     }
 
+    /// <summary>Answers the JavaScript dialog a browser tab has open.</summary>
+    /// <param name="request">The session, the browser tab and the answer.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="request"/> is null.</exception>
+    [NeoRpcMethod("answerDialog")]
+    public async Task<BrowserReply> AnswerDialogAsync(BrowserDialogRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (Refuse(request.ExpectedEpoch) is { } refused) return new(refused);
+        return Reply(await _browsers!.AnswerDialogAsync(request.SessionId ?? string.Empty, request.PageId ?? string.Empty, request.Accept, request.Text).ConfigureAwait(false));
+    }
+
     /// <summary>
     /// Says where the window that calls shows the browser of a session, in the CSS pixels of its page from its
     /// top-left corner, or that it no longer shows it.
@@ -164,7 +175,8 @@ internal sealed class BrowserService
 
     private static BrowserSessionItem Item(BrowserSessionInfo session)
         => new(session.SessionId,
-            [.. session.Pages.Select(static page => new BrowserPageItem(page.Id, page.Address, page.Title, page.Loading, page.CanGoBack, page.CanGoForward, page.Live))],
+            [.. session.Pages.Select(static page => new BrowserPageItem(page.Id, page.Address, page.Title, page.Loading, page.CanGoBack, page.CanGoForward, page.Live,
+                page.Dialog is { } dialog ? new BrowserDialogItem(dialog.Kind, dialog.Message, dialog.DefaultText) : null))],
             session.ActivePageId, session.Window);
 }
 
@@ -206,6 +218,14 @@ internal sealed record BrowserNavigateRequest(string? ExpectedEpoch, string? Ses
 /// <param name="Command"><c>back</c>, <c>forward</c>, <c>reload</c>, <c>stop</c> or <c>focus</c>.</param>
 internal sealed record BrowserCommandRequest(string? ExpectedEpoch, string? SessionId, string? PageId, string? Command);
 
+/// <summary>The answer to the JavaScript dialog of a browser tab.</summary>
+/// <param name="ExpectedEpoch">The host epoch the page read.</param>
+/// <param name="SessionId">The session.</param>
+/// <param name="PageId">The browser tab.</param>
+/// <param name="Accept">Whether the dialog is accepted, or dismissed.</param>
+/// <param name="Text">The text of a prompt that is accepted.</param>
+internal sealed record BrowserDialogRequest(string? ExpectedEpoch, string? SessionId, string? PageId, bool Accept, string? Text);
+
 /// <summary>Where the window that calls shows the browser of a session.</summary>
 /// <param name="ExpectedEpoch">The host epoch the page read.</param>
 /// <param name="SessionId">The session.</param>
@@ -224,7 +244,14 @@ internal sealed record BrowserPlaceRequest(string? ExpectedEpoch, string? Sessio
 /// <param name="CanGoBack">Whether its history has an earlier document.</param>
 /// <param name="CanGoForward">Whether its history has a later document.</param>
 /// <param name="Live">Whether it has its view.</param>
-internal sealed record BrowserPageItem(string Id, string Address, string Title, bool Loading, bool CanGoBack, bool CanGoForward, bool Live);
+/// <param name="Dialog">The JavaScript dialog it has open, which waits for an answer, or null.</param>
+internal sealed record BrowserPageItem(string Id, string Address, string Title, bool Loading, bool CanGoBack, bool CanGoForward, bool Live, BrowserDialogItem? Dialog);
+
+/// <summary>A JavaScript dialog of a browser tab.</summary>
+/// <param name="Kind"><c>alert</c>, <c>confirm</c>, <c>prompt</c> or <c>beforeunload</c>.</param>
+/// <param name="Message">Its text, from the page.</param>
+/// <param name="DefaultText">The text a prompt proposes, or null.</param>
+internal sealed record BrowserDialogItem(string Kind, string Message, string? DefaultText);
 
 /// <summary>The browser of a session.</summary>
 /// <param name="SessionId">The session.</param>

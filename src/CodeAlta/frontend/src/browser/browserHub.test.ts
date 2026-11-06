@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { BrowserPlaceRequest, BrowserReply } from "#neoastra";
+import type { BrowserPageItem, BrowserPlaceRequest, BrowserReply } from "#neoastra";
 import { boxOf, createBrowserHub, sameBox, type BrowserApi } from "./browserHub";
 
 const ok: BrowserReply = { status: "ok", session: null, pageId: null };
@@ -11,7 +11,7 @@ function fakeHost() {
   const api = {
     state: async (request: { sessionId: string }) => (request.sessionId ? ok : { ...ok, status: "invalid" }),
     open: async () => ok, close: async () => ok, select: async () => ok, move: async () => ok,
-    navigate: async () => ok, command: async () => ok, capture: async () => ({ status: "ok", image: "data:image/jpeg;base64,", width: 1, height: 1 }),
+    navigate: async () => ok, command: async () => ok, answerDialog: async () => ok, capture: async () => ({ status: "ok", image: "data:image/jpeg;base64,", width: 1, height: 1 }),
     place: async (request: BrowserPlaceRequest) => { places.push(request); return ok; },
   } as unknown as BrowserApi;
   return { api, places };
@@ -54,4 +54,31 @@ test("the host is told where this window shows a browser once for each change, a
   disconnect();
   await tick();
   assert.deepEqual(host.places.slice(-2).map(place => [place.sessionId, place.visible]), [["s2", true], ["s2", false]], "No view stays where nothing draws its frame.");
+});
+
+test("a dialog of a page is news, and its answer goes to the host with the page that asked", async () => {
+  const page = (dialog: BrowserPageItem["dialog"]): BrowserPageItem => ({ id: "a", address: "https://example.com/", title: "", loading: false, canGoBack: false, canGoForward: false, live: true, dialog });
+  const session = (dialog: BrowserPageItem["dialog"]) => ({ sessionId: "s1", pages: [page(dialog)], activePageId: "a", window: "main" });
+  const answers: unknown[] = [];
+  let shown = session(null);
+  const api = {
+    ...fakeHost().api,
+    state: async (request: { sessionId: string }) => (request.sessionId ? { ...ok, session: shown } : { ...ok, status: "invalid" }),
+    answerDialog: async (request: unknown) => { answers.push(request); shown = session(null); return { ...ok, session: shown }; },
+  } as unknown as BrowserApi;
+  const hub = createBrowserHub(api, { set: () => 0, clear: () => { } });
+  hub.connect("epoch-1");
+  hub.ensure("s1");
+  await tick();
+  const before = hub.session("s1");
+
+  shown = session({ kind: "prompt", message: "Your name?", defaultText: "Ada" });
+  hub.ensure("s1");
+  await tick();
+  assert.notEqual(hub.session("s1"), before);
+  assert.equal(hub.session("s1")?.pages[0].dialog?.message, "Your name?");
+
+  assert.equal((await hub.answerDialog("s1", "a", true, "Grace")).status, "ok");
+  assert.deepEqual(answers, [{ expectedEpoch: "epoch-1", sessionId: "s1", pageId: "a", accept: true, text: "Grace" }]);
+  assert.equal(hub.session("s1")?.pages[0].dialog, null);
 });

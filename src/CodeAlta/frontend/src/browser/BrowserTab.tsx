@@ -5,6 +5,7 @@ import { AppIcon } from "../AppIcon";
 import type { MessageKey } from "../localization";
 import { useShellLanguage } from "../shellLanguage";
 import { boxOf, sameBox, type BrowserBox, type BrowserHub, type BrowserStill } from "./browserHub";
+import { BrowserDialog } from "./BrowserDialog";
 import type { NativeViewOcclusion } from "./nativeViewOcclusion";
 
 /** What a reply that is not `ok` says, in words; nothing for a reply that needs none. */
@@ -31,7 +32,8 @@ export const pageLabel = (page: BrowserPageItem, empty: string) => page.title ||
  * page of the window. This component leaves a placeholder and says where it is, as long as the tab is shown.
  *
  * Something of the window that is drawn over the placeholder (a menu, a dialog, a toast) would be under the view: the
- * view is then hidden, and the placeholder shows a picture of the page instead, which the host takes at once.
+ * view is then hidden, and the placeholder shows a picture of the page instead, which the host takes at once. A
+ * JavaScript dialog of the page in front is drawn the same way, over the picture, until it is answered.
  */
 export function BrowserTab({ hub, occlusion, sessionId, visible, onActivate }: {
   hub: BrowserHub; occlusion: NativeViewOcclusion; sessionId: string; visible: boolean; onActivate?: () => void;
@@ -51,6 +53,9 @@ export function BrowserTab({ hub, occlusion, sessionId, visible, onActivate }: {
   const addressField = useRef<HTMLInputElement>(null);
   const frontPage = useRef(frontId);
   frontPage.current = frontId;
+  const asking = front?.dialog ?? null;
+  const frontAsks = useRef(false);
+  frontAsks.current = !!asking;
 
   useEffect(() => { hub.ensure(sessionId); return () => hub.release(sessionId); }, [hub, sessionId]);
   useEffect(() => { setDraft(null); setNotice(null); setStill(null); }, [sessionId]);
@@ -69,7 +74,7 @@ export function BrowserTab({ hub, occlusion, sessionId, visible, onActivate }: {
       const element = placeholder.current;
       const rect = element && frontPage.current ? element.getBoundingClientRect() : null;
       const box = rect ? boxOf(rect) : null;
-      const hidden = !!rect && !!box && occlusion.occludes({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, element);
+      const hidden = !!rect && !!box && (frontAsks.current || occlusion.occludes({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, element));
       if (hidden !== wasCovered) {
         wasCovered = hidden;
         setCovered(hidden);
@@ -119,6 +124,15 @@ export function BrowserTab({ hub, occlusion, sessionId, visible, onActivate }: {
     setNotice(browserNotice(reply.status));
   }
 
+  async function answerDialog(page: string, accept: boolean, text: string | null): Promise<boolean> {
+    const reply = await hub.answerDialog(sessionId, page, accept, text);
+    setNotice(browserNotice(reply.status));
+    if (reply.status !== "ok") return false;
+    // The page that asked takes the keyboard back, as in a browser.
+    void hub.command(sessionId, page, "focus");
+    return true;
+  }
+
   function onAddressKey(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Enter") { event.preventDefault(); void go(); }
     else if (event.key === "Escape") { event.preventDefault(); setDraft(null); event.currentTarget.select(); }
@@ -143,6 +157,7 @@ export function BrowserTab({ hub, occlusion, sessionId, visible, onActivate }: {
                 onAuxClick={event => { if (event.button === 1) { event.preventDefault(); void closeTab(page); } }}>
                 {page.loading ? <span className="browser-strip-loading" aria-hidden="true" /> : null}
                 <span className="browser-strip-title">{label}</span>
+                {page.dialog && !selected ? <span className="browser-strip-asking" title={t("This page waits for an answer.")} /> : null}
               </button>
               <Button minimal small className="browser-strip-close" icon={<AppIcon name="close" size={12} />} aria-label={t("Close {title}", { title: label })} onClick={() => void closeTab(page)} />
             </div>
@@ -167,6 +182,12 @@ export function BrowserTab({ hub, occlusion, sessionId, visible, onActivate }: {
       {notice && <div className="browser-notice" role="status">{t(notice)}</div>}
       <div ref={placeholder} className="browser-place">
         {covered && still && still.page === frontId ? <img className="browser-still" src={still.image} alt="" draggable={false} /> : null}
+        {front && asking
+          ? <div className="browser-asking">
+            <BrowserDialog key={`${front.id} ${asking.kind} ${asking.message}`} dialog={asking} address={front.address}
+              onAnswer={(accept, text) => answerDialog(front.id, accept, text)} />
+          </div>
+          : null}
         {session && pages.length === 0
           ? <NonIdealState className="browser-empty" icon={<AppIcon name="browse" size={32} />} title={t("Built-in browser")}
             description={t("Type an address above, such as the one of your application on localhost.")} />

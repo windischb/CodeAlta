@@ -21,13 +21,28 @@ internal sealed record BrowserPlacement(string Window, double X, double Y, doubl
         && Width >= 1 && Height >= 1 && Width <= Maximum && Height <= Maximum && Math.Abs(X) <= Maximum && Math.Abs(Y) <= Maximum;
 }
 
+/// <summary>A JavaScript dialog a page has open: it waits until someone answers it.</summary>
+/// <param name="Kind"><c>alert</c>, <c>confirm</c>, <c>prompt</c>, or <c>beforeunload</c> for the question before a document is left.</param>
+/// <param name="Message">The text of the page; at most <see cref="MaximumTextLength"/> UTF-16 units of it.</param>
+/// <param name="DefaultText">The text a prompt proposes, or null.</param>
+internal sealed record BrowserDialog(string Kind, string Message, string? DefaultText)
+{
+    /// <summary>The longest text that is shown of a dialog, or taken as the answer to a prompt, in UTF-16 units.</summary>
+    internal const int MaximumTextLength = 4000;
+
+    /// <summary>Text of a page, shortened to what is shown.</summary>
+    /// <param name="text">The text.</param>
+    internal static string Shorten(string? text) => text is null ? string.Empty : text.Length <= MaximumTextLength ? text : text[..MaximumTextLength];
+}
+
 /// <summary>What a page of the browser shows of itself.</summary>
 /// <param name="Address">The address of its document.</param>
 /// <param name="Title">The title of its document; empty when it has none.</param>
 /// <param name="Loading">Whether a document is being loaded.</param>
 /// <param name="CanGoBack">Whether its history has an earlier document.</param>
 /// <param name="CanGoForward">Whether its history has a later document.</param>
-internal sealed record BrowserViewState(string Address, string Title, bool Loading, bool CanGoBack, bool CanGoForward);
+/// <param name="Dialog">The JavaScript dialog the page has open, or null.</param>
+internal sealed record BrowserViewState(string Address, string Title, bool Loading, bool CanGoBack, bool CanGoForward, BrowserDialog? Dialog = null);
 
 /// <summary>A picture of what a page shows.</summary>
 /// <param name="Data">The encoded image.</param>
@@ -117,6 +132,12 @@ internal interface IBrowserView : IAsyncDisposable
 
     /// <summary>Gives the view the keyboard, when it is shown.</summary>
     void Focus();
+
+    /// <summary>Answers the JavaScript dialog the page has open: <see cref="BrowserViewState.Dialog"/>.</summary>
+    /// <param name="accept">Whether the dialog is accepted, or dismissed.</param>
+    /// <param name="text">The text of a prompt that is accepted.</param>
+    /// <returns>Whether there was a dialog.</returns>
+    bool AnswerDialog(bool accept, string? text);
 
     /// <summary>Takes a picture of what the view shows, also while it is hidden.</summary>
     /// <param name="cancellationToken">Cancels the wait.</param>

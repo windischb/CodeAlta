@@ -195,6 +195,44 @@ public sealed class DesktopBrowsersTests
         Assert.AreEqual("https://example.org/popup", state.Session.Pages[^1].Address);
     }
 
+    [TestMethod]
+    public async Task AJavaScriptDialogOfAPage_IsShownWithIt_UntilItIsAnswered()
+    {
+        var views = new FakeViews();
+        await using var browsers = new DesktopBrowsers(views);
+        var page = (await browsers.OpenAsync(Session, "example.com")).PageId!;
+        var view = views.Of(page);
+
+        view.Ask(new BrowserDialog("prompt", "Your name?", "Ada"));
+        var asking = browsers.Peek(Session)!.Pages.Single();
+        Assert.AreEqual(new BrowserDialog("prompt", "Your name?", "Ada"), asking.Dialog);
+        Assert.AreEqual("https://example.com/", asking.Address);
+
+        var answered = await browsers.AnswerDialogAsync(Session, page, true, "Grace");
+
+        Assert.AreEqual("ok", answered.Status);
+        Assert.AreEqual((true, "Grace"), view.Answers.Single());
+        Assert.IsNull(answered.Session!.Pages.Single().Dialog);
+        // A dialog that was answered meanwhile, by a tool of the session, is no error.
+        Assert.AreEqual("ok", (await browsers.AnswerDialogAsync(Session, page, false, null)).Status);
+        Assert.AreEqual("not_found", (await browsers.AnswerDialogAsync(Session, "no-such-page", true, null)).Status);
+        Assert.AreEqual("invalid", (await browsers.AnswerDialogAsync(Session, page, true, new string('x', BrowserDialog.MaximumTextLength + 1))).Status);
+    }
+
+    [TestMethod]
+    public async Task ABrowserTabWhoseViewIsLetGo_HasNoDialogLeft()
+    {
+        var views = new FakeViews();
+        await using var browsers = new DesktopBrowsers(views, liveViews: 1);
+        var first = (await browsers.OpenAsync(Session, "a.example")).PageId!;
+        views.Of(first).Ask(new BrowserDialog("alert", "Hello", null));
+
+        await browsers.OpenAsync(Session, "b.example");
+
+        Assert.IsTrue(views.Of(first).Disposed);
+        Assert.IsNull(browsers.Peek(Session)!.Pages.Single(page => page.Id == first).Dialog);
+    }
+
     private static BrowserPlacement Place(string window, double x = 0) => new(window, x, 40, 600, 700);
 
     private sealed class FakeViews : IBrowserViews
@@ -235,13 +273,31 @@ public sealed class DesktopBrowsersTests
 
         public string Address => Navigations.Count == 0 ? BrowserAddress.Blank : Navigations[^1].AbsoluteUri;
 
-        public BrowserViewState State { get; } = new(BrowserAddress.Blank, string.Empty, false, false, false);
+        public BrowserViewState State => new(Address, string.Empty, false, false, false, Dialog);
+
+        public BrowserDialog? Dialog { get; private set; }
+
+        public List<(bool Accept, string? Text)> Answers { get; } = [];
 
         public IBrowserViewDriver? Driver => null;
 
-#pragma warning disable CS0067 // The views of the tests report no change by themselves.
         public event Action? Changed;
-#pragma warning restore CS0067
+
+        /// <summary>The page opens a JavaScript dialog.</summary>
+        public void Ask(BrowserDialog dialog)
+        {
+            Dialog = dialog;
+            Changed?.Invoke();
+        }
+
+        public bool AnswerDialog(bool accept, string? text)
+        {
+            if (Dialog is null) return false;
+            Dialog = null;
+            Answers.Add((accept, text));
+            Changed?.Invoke();
+            return true;
+        }
 
         public void Navigate(Uri address) => Navigations.Add(address);
 

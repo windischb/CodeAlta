@@ -10,7 +10,8 @@ namespace CodeAlta.Desktop.Browser;
 /// <param name="CanGoBack">Whether its history has an earlier document.</param>
 /// <param name="CanGoForward">Whether its history has a later document.</param>
 /// <param name="Live">Whether the page has its view: a page without one loads its address again when it is shown.</param>
-internal sealed record BrowserPageInfo(string Id, string Address, string Title, bool Loading, bool CanGoBack, bool CanGoForward, bool Live);
+/// <param name="Dialog">The JavaScript dialog the page has open, which waits for an answer, or null.</param>
+internal sealed record BrowserPageInfo(string Id, string Address, string Title, bool Loading, bool CanGoBack, bool CanGoForward, bool Live, BrowserDialog? Dialog = null);
 
 /// <summary>The browser of a session.</summary>
 /// <param name="SessionId">The session.</param>
@@ -256,6 +257,27 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
     });
 
     /// <summary>
+    /// Answers the JavaScript dialog a page has open. Whoever answers first is the one who answered: a dialog that a
+    /// tool of the session answered meanwhile is gone, and the request is taken all the same.
+    /// </summary>
+    /// <param name="sessionId">The session.</param>
+    /// <param name="pageId">The page.</param>
+    /// <param name="accept">Whether the dialog is accepted, or dismissed.</param>
+    /// <param name="text">The text of a prompt that is accepted; null for an empty one.</param>
+    internal Task<BrowserResult> AnswerDialogAsync(string sessionId, string pageId, bool accept, string? text)
+    {
+        if (text is { Length: > BrowserDialog.MaximumTextLength }) return Task.FromResult(new BrowserResult("invalid"));
+        return RunAsync(sessionId, session =>
+        {
+            if (Find(session, pageId) is not { } page) return Task.FromResult("not_found");
+            page.View?.AnswerDialog(accept, text);
+            // What was answered is not shown any longer, whoever answered it.
+            page.Dialog = page.View?.State.Dialog;
+            return Task.FromResult("ok");
+        });
+    }
+
+    /// <summary>
     /// Says where a window shows the browser of a session, or that it no longer shows it. The page in front is shown
     /// there, in that window, and every other page of the session is hidden. A window that no longer shows the
     /// browser hides it only when it is the window that shows it.
@@ -378,6 +400,7 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
         public bool Loading { get; set; }
         public bool CanGoBack { get; set; }
         public bool CanGoForward { get; set; }
+        public BrowserDialog? Dialog { get; set; }
         public IBrowserView? View { get; set; }
         public Action? Handler { get; set; }
         public Task? Creating { get; set; }
@@ -522,7 +545,7 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
         // The empty page of a view that has not loaded its address yet is not what the page is about.
         if (Uri.TryCreate(state.Address, UriKind.Absolute, out var address) && BrowserAddress.IsAllowed(address)
             && !(address.AbsoluteUri == BrowserAddress.Blank && state.Loading)) page.Address = address.AbsoluteUri;
-        (page.Title, page.Loading, page.CanGoBack, page.CanGoForward) = (Shorten(state.Title), state.Loading, state.CanGoBack, state.CanGoForward);
+        (page.Title, page.Loading, page.CanGoBack, page.CanGoForward, page.Dialog) = (Shorten(state.Title), state.Loading, state.CanGoBack, state.CanGoForward, state.Dialog);
         Publish(page.Session);
     }
 
@@ -531,7 +554,7 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
     {
         if (page.View is not { } view) return;
         if (page.Handler is { } handler) view.Changed -= handler;
-        (page.View, page.Handler, page.Loading, page.CanGoBack, page.CanGoForward) = (null, null, false, false, false);
+        (page.View, page.Handler, page.Loading, page.CanGoBack, page.CanGoForward, page.Dialog) = (null, null, false, false, false, null);
         _ = DisposeQuietlyAsync(view);
     }
 
@@ -554,7 +577,7 @@ internal sealed class DesktopBrowsers : IAsyncDisposable
     private BrowserSessionInfo Publish(Session session)
     {
         var info = new BrowserSessionInfo(session.Id,
-            [.. session.Pages.Select(static page => new BrowserPageInfo(page.Id, page.Address, page.Title, page.Loading, page.CanGoBack, page.CanGoForward, page.View is not null))],
+            [.. session.Pages.Select(static page => new BrowserPageInfo(page.Id, page.Address, page.Title, page.Loading, page.CanGoBack, page.CanGoForward, page.View is not null, page.Dialog))],
             session.Active?.Id, session.Placement?.Window);
         // A session that was forgotten meanwhile is not brought back by a late change of one of its pages.
         if (!_sessions.ContainsKey(session.Id)) return info;

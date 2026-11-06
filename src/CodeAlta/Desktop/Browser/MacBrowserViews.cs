@@ -346,7 +346,14 @@ internal sealed class MacBrowserViews : IBrowserViews, IAsyncDisposable
         }
 
         private BrowserViewState Read()
-            => new(_view.Source?.AbsoluteUri ?? BrowserAddress.Blank, _view.Title ?? string.Empty, _view.IsLoading, _view.CanGoBack, _view.CanGoForward);
+            => new(_view.Source?.AbsoluteUri ?? BrowserAddress.Blank, _view.Title ?? string.Empty, _view.IsLoading, _view.CanGoBack, _view.CanGoForward,
+                Dialog is { } dialog ? new BrowserDialog(dialog.Kind switch
+                {
+                    NeoScriptDialogKind.Confirm => "confirm",
+                    NeoScriptDialogKind.Prompt => "prompt",
+                    NeoScriptDialogKind.BeforeUnload => "beforeunload",
+                    _ => "alert",
+                }, BrowserDialog.Shorten(dialog.Message), dialog.DefaultText is null ? null : BrowserDialog.Shorten(dialog.DefaultText)) : null);
 
         private void Do(Action action)
         {

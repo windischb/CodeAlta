@@ -849,6 +849,7 @@ internal sealed record BootClosing(string? Step, int Seconds, bool CanForceExit)
 [JsonSerializable(typeof(BrowserNavigateRequest))]
 [JsonSerializable(typeof(BrowserCommandRequest))]
 [JsonSerializable(typeof(BrowserPlaceRequest))]
+[JsonSerializable(typeof(BrowserDialogRequest))]
 [JsonSerializable(typeof(BrowserReply))]
 [JsonSerializable(typeof(BrowserCaptureReply))]
 [JsonSerializable(typeof(TerminalsRequest))]

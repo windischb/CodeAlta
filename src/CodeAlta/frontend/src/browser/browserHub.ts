@@ -2,7 +2,7 @@
 // shows the browser of a session.
 import type { browser, BrowserReply, BrowserSessionItem } from "#neoastra";
 
-export type BrowserApi = Pick<typeof browser, "state" | "open" | "close" | "select" | "move" | "navigate" | "command" | "place" | "capture">;
+export type BrowserApi = Pick<typeof browser, "state" | "open" | "close" | "select" | "move" | "navigate" | "command" | "answerDialog" | "place" | "capture">;
 /** What a browser tab can be asked to do besides loading an address. */
 export type BrowserCommand = "back" | "forward" | "reload" | "stop" | "focus";
 /** Where this window shows the browser of a session: a rectangle of its page, in CSS pixels. */
@@ -37,7 +37,8 @@ function sameSession(a: BrowserSessionItem | undefined, b: BrowserSessionItem): 
   return !!a && a.activePageId === b.activePageId && a.window === b.window && a.pages.length === b.pages.length && a.pages.every((page, index) => {
     const other = b.pages[index];
     return page.id === other.id && page.address === other.address && page.title === other.title && page.loading === other.loading
-      && page.canGoBack === other.canGoBack && page.canGoForward === other.canGoForward && page.live === other.live;
+      && page.canGoBack === other.canGoBack && page.canGoForward === other.canGoForward && page.live === other.live
+      && page.dialog?.kind === other.dialog?.kind && page.dialog?.message === other.dialog?.message && page.dialog?.defaultText === other.dialog?.defaultText;
   });
 }
 
@@ -175,6 +176,9 @@ export function createBrowserHub(api: BrowserApi, timers: Timers = { set: (run, 
     move: (sessionId: string, pageId: string, index: number) => call(sessionId, expectedEpoch => api.move({ expectedEpoch, sessionId, pageId, index }, { timeoutMilliseconds: callMilliseconds })),
     navigate: (sessionId: string, pageId: string, address: string) => call(sessionId, expectedEpoch => api.navigate({ expectedEpoch, sessionId, pageId, address }, { timeoutMilliseconds: callMilliseconds })),
     command: (sessionId: string, pageId: string, command: BrowserCommand) => call(sessionId, expectedEpoch => api.command({ expectedEpoch, sessionId, pageId, command }, { timeoutMilliseconds: callMilliseconds })),
+    /** Answers the JavaScript dialog a browser tab has open; `text` is the answer to a prompt that is accepted. */
+    answerDialog: (sessionId: string, pageId: string, accept: boolean, text: string | null = null) =>
+      call(sessionId, expectedEpoch => api.answerDialog({ expectedEpoch, sessionId, pageId, accept, text }, { timeoutMilliseconds: callMilliseconds })),
 
     /** A picture of a browser tab, or null when there is none. */
     async capture(sessionId: string, pageId: string): Promise<BrowserStill | null> {

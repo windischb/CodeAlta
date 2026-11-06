@@ -25,5 +25,15 @@
 /* The place of the browser tab in front. It is empty under the view; while the view is hidden behind something of the
    window it shows a picture of the page. */
 .browser-place { position: relative; flex: 1 1 0; min-height: 0; overflow: hidden; background: var(--panel-2); }
-.browser-still { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+.browser-still { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
 .browser-empty.bp6-non-ideal-state { position: absolute; inset: 0; padding: 20px; }
+
+/* A JavaScript dialog of the page in front, drawn in its place while the view is hidden: the page waits for it. */
+.browser-asking { position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: center; padding: 48px 16px 16px; background: color-mix(in srgb, var(--bg) 45%, transparent); }
+.browser-dialog { display: flex; flex-direction: column; gap: 10px; width: min(440px, 100%); padding: 16px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--text); background: var(--panel); box-shadow: 0 8px 24px color-mix(in srgb, #000 22%, transparent); font-size: 13px; }
+.browser-dialog > strong { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.browser-dialog > p { max-height: 40vh; margin: 0; overflow: auto; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.browser-dialog-text.bp6-input { width: 100%; }
+.browser-dialog-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+/* A browser tab behind that waits in a dialog. */
+.browser-strip-asking { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
