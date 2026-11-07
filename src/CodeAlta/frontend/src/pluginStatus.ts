@@ -4,7 +4,12 @@ export type ComposerStatusView = Readonly<{ key: string; pluginId: string; label
   /** The Settings page the item opens, or null when it opens nothing. */
   settingsPage: string | null;
   /** The plugin command the item runs, or null. */
-  commandId: string | null }>;
+  commandId: string | null;
+  /** Other ways to run it, each a command with an argument: the menu of a split button. */
+  alternatives: readonly ComposerStatusAlternativeView[] }>;
+/** Another way to run a status item, in the menu beside it. */
+export type ComposerStatusAlternativeView = Readonly<{ label: string; commandId: string; argument: string | null }>;
+const maximumAlternatives = 12;
 
 const tones: readonly string[] = ["info", "success", "warning", "error", "muted"];
 const maximumItems = 8, maximumText = 160;
@@ -29,7 +34,14 @@ export function composerStatusItems(reply: unknown, projectId: string | null): C
     items.push({ key, pluginId: item.pluginId, label: item.label, text: item.text,
       tone: tones.includes(item.tone as string) ? item.tone as ComposerStatusTone : "info",
       settingsPage: name(item.settingsPage) ? item.settingsPage : null,
-      commandId: typeof item.commandId === "string" && item.commandId.length > 0 && item.commandId.length <= 512 ? item.commandId : null });
+      commandId: typeof item.commandId === "string" && item.commandId.length > 0 && item.commandId.length <= 512 ? item.commandId : null,
+      alternatives: Array.isArray(item.alternatives) ? item.alternatives.slice(0, maximumAlternatives).flatMap(value => {
+        if (!value || typeof value !== "object") return [];
+        const alternative = value as Record<string, unknown>;
+        return line(alternative.label) && alternative.label && typeof alternative.commandId === "string" && alternative.commandId.length > 0 && alternative.commandId.length <= 512
+          && (alternative.argument == null || line(alternative.argument))
+          ? [{ label: alternative.label, commandId: alternative.commandId, argument: (alternative.argument as string | null | undefined) ?? null }] : [];
+      }) : [] });
   }
   return items;
 }
@@ -38,6 +50,8 @@ export function composerStatusItems(reply: unknown, projectId: string | null): C
 export function sameComposerStatus(left: readonly ComposerStatusView[], right: readonly ComposerStatusView[]): boolean {
   return left.length === right.length && left.every((item, index) => {
     const other = right[index];
-    return item.key === other.key && item.label === other.label && item.text === other.text && item.tone === other.tone && item.settingsPage === other.settingsPage && item.commandId === other.commandId;
+    return item.key === other.key && item.label === other.label && item.text === other.text && item.tone === other.tone && item.settingsPage === other.settingsPage && item.commandId === other.commandId
+      && item.alternatives.length === other.alternatives.length && item.alternatives.every((alternative, at) => alternative.label === other.alternatives[at].label
+        && alternative.commandId === other.alternatives[at].commandId && alternative.argument === other.alternatives[at].argument);
   });
 }

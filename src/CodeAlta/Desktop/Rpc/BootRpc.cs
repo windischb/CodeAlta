@@ -842,6 +842,7 @@ internal sealed record BootClosing(string? Step, int Seconds, bool CanForceExit)
 [JsonSerializable(typeof(CloudContinueRequest))]
 [JsonSerializable(typeof(CloudContinueResponse))]
 [JsonSerializable(typeof(BrowserSessionRequest))]
+[JsonSerializable(typeof(ComposerStatusAlternative))]
 [JsonSerializable(typeof(BrowserOpenRequest))]
 [JsonSerializable(typeof(BrowserPageRequest))]
 [JsonSerializable(typeof(BrowserMoveRequest))]

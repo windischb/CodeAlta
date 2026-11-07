@@ -3186,6 +3186,10 @@ span.workspace-chip-part.workspace-chip-changes { display: inline-flex; align-it
 .composer-plugin-status-item.bp6-button .bp6-button-text { display: inline-flex; align-items: center; gap: 6px; }
 .composer-plugin-status-item.bp6-button:hover { background: var(--panel-3); color: var(--text); }
 .composer-plugin-status-item strong { color: var(--text); font-weight: 600; }
+/* A status item with other ways to run it: the item and a caret, joined as one split button. */
+.composer-plugin-status-split { display: inline-flex; align-items: stretch; }
+.composer-plugin-status-split > .composer-plugin-status-item.bp6-button { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.composer-plugin-status-split .composer-plugin-status-caret.bp6-button { min-width: 0; padding: 0 5px; border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .composer-plugin-status-text { font-variant-numeric: tabular-nums; }
 .composer-plugin-status-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .composer-plugin-status-item[data-tone="success"] .composer-plugin-status-dot { background: var(--green); }

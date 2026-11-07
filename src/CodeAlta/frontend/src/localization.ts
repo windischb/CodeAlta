@@ -3045,6 +3045,7 @@ export const messages = dictionary({
   "Browser tabs": ["Pestañas del navegador", "Onglets du navigateur", "Browser-Tabs", "ブラウザーのタブ", "浏览器标签页"],
   "New tab": ["Nueva pestaña", "Nouvel onglet", "Neuer Tab", "新しいタブ", "新标签页"],
   "Forward": ["Adelante", "Suivant", "Vorwärts", "進む", "前进"],
+  "More ways to open {name}": ["Más formas de abrir {name}", "Autres façons d’ouvrir {name}", "Weitere Wege, {name} zu öffnen", "{name} を開くほかの方法", "打开 {name} 的其他方式"],
   "Built-in browser": ["Navegador integrado", "Navigateur intégré", "Eingebauter Browser", "内蔵ブラウザー", "内置浏览器"],
   "Open the built-in browser of the session beside it, in a tab of its own.": ["Abre el navegador integrado de la sesión a su lado, en una pestaña propia.", "Ouvre le navigateur intégré de la session à côté d’elle, dans un onglet à part.", "Öffnet den eingebauten Browser der Session daneben, in einem eigenen Tab.", "セッションの内蔵ブラウザーを、その横の専用タブで開きます。", "在会话旁边的独立标签页中打开该会话的内置浏览器。"],
   "Type an address, such as localhost:5173": ["Escribe una dirección, como localhost:5173", "Saisissez une adresse, comme localhost:5173", "Adresse eingeben, z. B. localhost:5173", "アドレスを入力（例: localhost:5173）", "输入地址，例如 localhost:5173"],

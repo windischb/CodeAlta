@@ -21,7 +21,9 @@ export type PluginContributionsView = Readonly<{ commands: readonly PluginComman
 export const noPluginContributions: PluginContributionsView = Object.freeze({ commands: Object.freeze([]), pickers: Object.freeze([]), regions: false });
 
 /** The pane a plugin command runs for. */
-export type PluginPane = Readonly<{ projectId: string | null; sessionId: string | null; busy: boolean; draftText: string | null }>;
+export type PluginPane = Readonly<{ projectId: string | null; sessionId: string | null; busy: boolean; draftText: string | null;
+  /** What the command is run with: the argument of the alternative of a status item that was chosen. */
+  argument?: string | null }>;
 
 /**
  * What the shell gives the parts of the window that show plugin content: the commands and pickers of the

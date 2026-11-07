@@ -271,6 +271,12 @@ public sealed class PluginStartupContext : PluginOperationContext
 /// <summary>Context for plugin command handlers.</summary>
 public sealed class PluginCommandContext : PluginOperationContext
 {
+    /// <summary>
+    /// Gets what the command was run with, or null: the argument of the <see cref="PluginStatusAlternative"/> the user
+    /// chose. A command that is run any other way gets null.
+    /// </summary>
+    public string? Argument { get; init; }
+
     /// <summary>Gets UI services.</summary>
     public IPluginUiService Ui => Services.Ui;
 

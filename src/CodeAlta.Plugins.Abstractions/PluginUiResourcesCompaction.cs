@@ -58,7 +58,20 @@ public sealed record PluginStatusItem
     /// <see langword="null"/> for an item that only informs.
     /// </summary>
     public string? Command { get; init; }
+
+    /// <summary>
+    /// Gets other ways to run the item, which CodeAlta Desktop offers beside it in a menu (a split button): each runs a
+    /// command of the same plugin with an argument. Empty for an item that has one way only; the terminal UI shows the
+    /// item and its <see cref="Command"/> alone.
+    /// </summary>
+    public IReadOnlyList<PluginStatusAlternative> Alternatives { get; init; } = [];
 }
+
+/// <summary>Another way to run a status item: a command of the same plugin with an argument, under a label of its own.</summary>
+/// <param name="Label">What the menu shows, such as the name of a browser.</param>
+/// <param name="Command">The name of the command of the plugin.</param>
+/// <param name="Argument">What the command gets as <see cref="PluginCommandContext.Argument"/>, or null.</param>
+public sealed record PluginStatusAlternative(string Label, string Command, string? Argument = null);
 
 /// <summary>Identifies status tone.</summary>
 public enum PluginStatusTone

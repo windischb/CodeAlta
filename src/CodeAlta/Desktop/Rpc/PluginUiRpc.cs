@@ -287,7 +287,8 @@ internal sealed partial class PluginUiService
         var scope = await ResolveAsync(request.ExpectedEpoch, request.ProjectId, request.SessionId, request.SpaceId, cancellationToken).ConfigureAwait(false);
         if (scope.Status != "ok") return new(scope.Status);
         if (request.CommandId is not { Length: > 0 and <= MaximumIdUnits } id || request.DraftText is { Length: > DesktopPluginUi.MaximumTextUnits }
-            || request.SpaceId is { } space && (space.Length is 0 or > MaximumIdUnits || space.Any(char.IsControl))) return new("invalid_request");
+            || request.SpaceId is { } space && (space.Length is 0 or > MaximumIdUnits || space.Any(char.IsControl))
+            || request.Argument is { } argument && (argument.Length > DesktopPluginUi.MaximumTextUnits || argument.Any(char.IsControl))) return new("invalid_request");
         var registration = _plugins!.Adapter.GetContributions<PluginCommandContribution>(PluginPoint.Command, scope.Options)
             .FirstOrDefault(candidate => string.Equals(candidate.Handle.RuntimeContributionKey, id, StringComparison.Ordinal));
         if (registration is null) return new("unknown_command");
@@ -297,7 +298,7 @@ internal sealed partial class PluginUiService
         if (availability.RequiresProject && request.ProjectId is null || needsSession && request.SessionId is null
             || availability.RequiresIdleSession && request.SessionBusy || availability.RequiresBusySession && !request.SessionBusy) return new("unavailable");
 
-        var options = scope.Options! with { SessionId = request.SessionId };
+        var options = scope.Options! with { SessionId = request.SessionId, Argument = request.Argument };
         var pane = new DesktopPluginScope
         {
             ProjectId = request.ProjectId, ProjectPath = scope.Options!.ProjectPath, SessionId = request.SessionId,
@@ -576,7 +577,7 @@ internal sealed record PluginUiContent(string Id, string PluginKey, string Regio
 /// <param name="SessionBusy">The pane's session is running.</param>
 /// <param name="DraftText">The pane's prompt draft.</param>
 /// <param name="SpaceId">The space the window shows, or null; the command sees it as the space of its scope.</param>
-internal sealed record PluginUiInvokeRequest(string? ExpectedEpoch, string? CommandId, string? ProjectId, string? SessionId, bool SessionBusy, string? DraftText, string? SpaceId = null);
+internal sealed record PluginUiInvokeRequest(string? ExpectedEpoch, string? CommandId, string? ProjectId, string? SessionId, bool SessionBusy, string? DraftText, string? SpaceId = null, string? Argument = null);
 
 /// <summary>A status code alone: <c>ok</c>, <c>started</c> or a refusal.</summary>
 internal sealed record PluginUiStatusResponse(string Status);

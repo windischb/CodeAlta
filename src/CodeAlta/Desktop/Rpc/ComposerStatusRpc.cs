@@ -29,6 +29,9 @@ internal sealed class ComposerStatusService
     /// <summary>Longest label or text of an item, in UTF-16 units; longer ones are cut.</summary>
     internal const int MaximumTextUnits = 160;
 
+    /// <summary>Largest number of other ways to run one item.</summary>
+    internal const int MaximumAlternatives = 12;
+
     /// <summary>Largest number of MCP servers in one <c>mcp</c> response.</summary>
     internal const int MaximumMcpServers = 64;
 
@@ -121,10 +124,15 @@ internal sealed class ComposerStatusService
                 {
                     // An item can run a command of its own plugin.
                     var (registration, item) = (statuses[index].Registration, statuses[index].Item);
-                    var command = item.Command is null ? null : commands.FirstOrDefault(candidate =>
+                    string? CommandOf(string? name) => name is null ? null : commands.FirstOrDefault(candidate =>
                         string.Equals(candidate.Handle.PluginRuntimeKey, registration.Handle.PluginRuntimeKey, StringComparison.Ordinal)
-                        && string.Equals(((PluginCommandContribution)candidate.Contribution).Name, item.Command, StringComparison.OrdinalIgnoreCase));
-                    items.Add(Item("plugins", "status-" + index, item, null) with { CommandId = command?.Handle.RuntimeContributionKey });
+                        && string.Equals(((PluginCommandContribution)candidate.Contribution).Name, name, StringComparison.OrdinalIgnoreCase))?.Handle.RuntimeContributionKey;
+                    // The other ways to run it, each a command of the same plugin with an argument: the menu of a split button.
+                    var alternatives = item.Alternatives.Take(MaximumAlternatives)
+                        .Select(alternative => CommandOf(alternative.Command) is { } id && alternative.Argument is not { Length: > MaximumTextUnits }
+                            ? new ComposerStatusAlternative(Cut(alternative.Label), id, alternative.Argument) : null)
+                        .OfType<ComposerStatusAlternative>().Where(static alternative => alternative.Label.Length > 0).ToArray();
+                    items.Add(Item("plugins", "status-" + index, item, null) with { CommandId = CommandOf(item.Command), Alternatives = alternatives });
                 }
             }
 
@@ -267,7 +275,17 @@ internal sealed record ComposerStatusResponse(string Status, string? ProjectId, 
 /// <param name="Tone"><c>info</c>, <c>success</c>, <c>warning</c>, <c>error</c> or <c>muted</c>.</param>
 /// <param name="SettingsPage">The Settings page the item opens (<c>mcp</c>), or null when it opens nothing.</param>
 /// <param name="CommandId">The plugin command the item runs, as listed by <c>pluginUi.contributions</c>, or null.</param>
-internal sealed record ComposerStatusItem(string PluginId, string Name, string Label, string Text, string Tone, string? SettingsPage, string? CommandId = null);
+internal sealed record ComposerStatusItem(string PluginId, string Name, string Label, string Text, string Tone, string? SettingsPage, string? CommandId = null)
+{
+    /// <summary>Gets the other ways to run the item, which the window offers in the menu of a split button.</summary>
+    public ComposerStatusAlternative[] Alternatives { get; init; } = [];
+}
+
+/// <summary>Another way to run a status item: a command with an argument.</summary>
+/// <param name="Label">What the menu shows.</param>
+/// <param name="CommandId">The plugin command, as listed by <c>pluginUi.contributions</c>.</param>
+/// <param name="Argument">What the command is run with, or null.</param>
+internal sealed record ComposerStatusAlternative(string Label, string CommandId, string? Argument);
 
 /// <summary><c>ok</c> with the MCP servers a session can use, or a refusal code with none.</summary>
 /// <param name="Status"><c>ok</c> or a refusal code.</param>

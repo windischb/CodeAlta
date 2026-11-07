@@ -80,6 +80,12 @@ public sealed class BrowserPluginHost
     /// </summary>
     internal Func<CancellationToken, ValueTask<CodeAlta.Browser.Drivers.IBrowserConnection>>? Embedded { get; set; }
 
+    /// <summary>
+    /// Gets or sets what shows the browser built into the application for a session: its tab beside the session, in the
+    /// window. Null where there is none.
+    /// </summary>
+    internal Action<string>? ShowEmbedded { get; set; }
+
     /// <summary>The id of the browser built into the application, in the browser choice and in Settings.</summary>
     public const string EmbeddedId = "codealta";
 

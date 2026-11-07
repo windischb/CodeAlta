@@ -259,6 +259,17 @@ internal sealed class DesktopShell
         ShowInMainPage(new DesktopShellEvent("show-session", 0, SessionId: sessionId));
     }
 
+    /// <summary>
+    /// Tells the main page to show the built-in browser of a session in its tab beside the session (<c>show-browser</c>):
+    /// the user opened it, or an agent began to browse in it. The window is not brought to the front: the user may be
+    /// elsewhere while an agent works.
+    /// </summary>
+    internal void ShowBrowser(string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        PublishTo(Windows.DesktopWindows.MainLabel, new DesktopShellEvent("show-browser", 0, SessionId: sessionId));
+    }
+
     private void ShowInMainPage(DesktopShellEvent notice)
     {
         bool watched;

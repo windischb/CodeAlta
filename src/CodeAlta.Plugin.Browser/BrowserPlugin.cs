@@ -231,17 +231,42 @@ public sealed class BrowserPlugin : PluginBase
     /// </summary>
     /// <returns>Null when the browser shows, else what kept it from opening.</returns>
     /// <exception cref="OperationCanceledException">The call was canceled.</exception>
-    internal async Task<string?> OpenForUserAsync(string sessionId, string? projectPath, CancellationToken cancellationToken)
+    internal Task<string?> OpenForUserAsync(string sessionId, string? projectPath, CancellationToken cancellationToken)
+        => OpenForUserAsync(sessionId, projectPath, null, null, cancellationToken);
+
+    /// <summary>
+    /// Opens the browser of a session for the user, with a browser of their choice: another one than the browser the
+    /// session has open is taken only after the user agrees, since its tabs close.
+    /// </summary>
+    /// <param name="sessionId">The session.</param>
+    /// <param name="projectPath">The folder of its project.</param>
+    /// <param name="browser">The id of the browser, or null for the one of Settings (or the one the session has).</param>
+    /// <param name="ui">What asks the user, or null to ask nothing.</param>
+    /// <param name="cancellationToken">Cancels the opening.</param>
+    /// <returns>Null when it opened, else what went wrong, for the user.</returns>
+    internal async Task<string?> OpenForUserAsync(string sessionId, string? projectPath, string? browser, IPluginUiService? ui, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         if (!_host.HasUser) return "This application has no user to open a browser for.";
-        var activation = await ActivateSessionAsync(sessionId, projectPath, null, null, _host.UserBrowserHeadless, null, userAsked: true, cancellationToken).ConfigureAwait(false);
+        if (browser is not null && SessionOf(sessionId) is { IsOpen: true } open && !string.Equals(open.Target.Browser.Id, browser, StringComparison.OrdinalIgnoreCase))
+        {
+            var name = Usages(_settings).FirstOrDefault(usage => string.Equals(usage.Browser.Id, browser, StringComparison.OrdinalIgnoreCase))?.Browser.Name ?? browser;
+            if (ui is null || !await ui.ConfirmAsync("Switch the browser?",
+                    $"This session browses in {open.Target.Browser.Name}. Open {name} instead? The tabs of {open.Target.Browser.Name} for this session close.", cancellationToken).ConfigureAwait(false))
+            {
+                return null;
+            }
+        }
+
+        var activation = await ActivateSessionAsync(sessionId, projectPath, browser, null, _host.UserBrowserHeadless, null, userAsked: true, cancellationToken).ConfigureAwait(false);
         if (activation.Message is { } message) return message;
         if (activation.Session is not { } session)
         {
             return "Safari is driven by its own MCP server, so CodeAlta cannot open it for a session: choose Chrome, Edge or Firefox in Settings > Extensions > Browser.";
         }
 
+        // The browser built into the window shows its tabs in a tab of the window, beside the session.
+        if (session.Target.Browser.Engine == BrowserEngine.Embedded) _host.ShowEmbedded?.Invoke(sessionId);
         try
         {
             var result = await session.ShowAsync(() => session.StartPage ??= _files.PageAddress(async token =>
@@ -858,6 +883,8 @@ public sealed class BrowserPlugin : PluginBase
 
         // The UI tools of the window have the same names: the window takes them back.
         _host.Activated?.Invoke(sessionId);
+        // What an agent does in the browser built into the window is seen where it happens: its tab beside the session.
+        if (choice.Browser.Engine == BrowserEngine.Embedded) _host.ShowEmbedded?.Invoke(sessionId);
         return new Activation(session, choice, sandbox, null, null, false);
     }
 
@@ -1118,10 +1145,38 @@ public sealed class BrowserPlugin : PluginBase
 
     /// <summary>
     /// The Browser item of a session in the status line, only while it has the browser tools: its browser, profile and
-    /// tabs, which <see cref="OpenCommand"/> brings to the front. Not every session browses: the menu of the session
-    /// opens the browser, not an item under every prompt.
+    /// tabs, which <see cref="OpenCommand"/> brings to the front, and in its menu the other browsers to open it with. Not
+    /// every session browses: the menu of the session opens the browser, not an item under every prompt.
     /// </summary>
-    internal PluginStatusItem? StatusOf(string? sessionId) => SessionOf(sessionId) is { } session ? StatusItem(session) : null;
+    internal PluginStatusItem? StatusOf(string? sessionId)
+        => SessionOf(sessionId) is { } session ? StatusItem(session) with { Alternatives = _host.HasUser ? Alternatives(session.Target.Browser.Id) : [] } : null;
+
+    // The other browsers the user can open the browser of a session with, from the menu of its Browser item: those of
+    // this computer that a user can browse in, but the one the item shows. Read again at most every half minute.
+    private IReadOnlyList<PluginStatusAlternative> Alternatives(string? current)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var known = _alternatives;
+        if (known is null || now - known.Read > TimeSpan.FromSeconds(30))
+        {
+            var settings = _settings;
+            BrowserProfileSpec.TryParse(settings.Profile, out var profile);
+            var usages = Usages(settings);
+            var chosen = BrowserChoice.Choose(usages, null, settings.Browser, profile.Kind, now, out _)?.Browser.Id;
+            var browsers = usages.Select(static usage => usage.Browser)
+                .Where(browser => browser.Engine != BrowserEngine.Safari && browser.Refusal(profile.Kind) is null && browser.Id != "custom")
+                .Select(static browser => (browser.Id, browser.Name)).ToArray();
+            _alternatives = known = new BrowserAlternatives(now, chosen, browsers);
+        }
+
+        var opens = current ?? known.Chosen;
+        return [.. known.Browsers.Where(browser => !string.Equals(browser.Id, opens, StringComparison.OrdinalIgnoreCase))
+            .Select(static browser => new PluginStatusAlternative(browser.Name, OpenCommand, browser.Id))];
+    }
+
+    private sealed record BrowserAlternatives(DateTimeOffset Read, string? Chosen, IReadOnlyList<(string Id, string Name)> Browsers);
+
+    private volatile BrowserAlternatives? _alternatives;
 
     /// <summary>The status item of a session that has the browser tools: its browser, its profile and its tabs.</summary>
     internal static PluginStatusItem StatusItem(BrowserAgentSession session)
@@ -1145,7 +1200,8 @@ public sealed class BrowserPlugin : PluginBase
         yield return CodeAlta.Plugins.Abstractions.Command.Session(OpenCommand, "Opens the browser of this session, to browse and annotate pages the agent sees, or brings it to the front.", async (context, cancellationToken) =>
         {
             if (string.IsNullOrWhiteSpace(context.SessionId)) return PluginCommandResult.Message("Open a session first: its browser belongs to it.");
-            var problem = await OpenForUserAsync(context.SessionId, context.ProjectPath, cancellationToken).ConfigureAwait(false);
+            // The argument names another browser than the one of Settings, for this session: an alternative of the Browser item.
+            var problem = await OpenForUserAsync(context.SessionId, context.ProjectPath, context.Argument, context.Ui, cancellationToken).ConfigureAwait(false);
             return problem is null ? PluginCommandResult.Handled : PluginCommandResult.Message(problem);
         });
         yield return CodeAlta.Plugins.Abstractions.Command.Session(StopCommand, "Closes the tabs this session opened in its browser.", async (context, _) =>
@@ -1190,6 +1246,8 @@ public sealed class BrowserPlugin : PluginBase
             // The change applies to the settings now, not to those it was written from: a choice the toolbar made in
             // memory meanwhile stays, and is written by its own save, which waits for this one.
             lock (_settingsGate) _settings = change(_settings).Normalized();
+            // The Browser item offers the other browsers again, from the new choice.
+            _alternatives = null;
         }
         finally
         {

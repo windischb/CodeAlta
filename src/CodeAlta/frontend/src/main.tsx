@@ -2211,6 +2211,7 @@ function App({ initialWindow = null }: { initialWindow?: WindowsCurrentResponse 
   const showHostProject = useRef(async (_projectId: string, _spaceId: string | null) => {});
   // The session whose notification the user opened (a session that is done or waits for them).
   const showHostSession = useRef((_sessionId: string) => {});
+  const showBrowser = useRef((_sessionId: string) => {});
   const nativeCloseTab = useRef<() => void>(() => {});
   requestExit.current = exitApplication;
   async function saveAllAndExit(unsaved: FileTab[]) {
@@ -2372,6 +2373,8 @@ function App({ initialWindow = null }: { initialWindow?: WindowsCurrentResponse 
           else if (notice.kind === "sessions-changed") readSessionList.current();
           else if (notice.kind === "show-project" && notice.projectId) void showHostProject.current(notice.projectId, notice.spaceId ?? null);
           else if (notice.kind === "show-session" && notice.sessionId) showHostSession.current(notice.sessionId);
+          // The built-in browser of a session opened: its tab beside the session, or the window that holds it.
+          else if (notice.kind === "show-browser" && notice.sessionId) showBrowser.current(notice.sessionId);
           // The user chose another external editor, in this window or another one.
           else if (notice.kind === "external-editor") void externalOpener.reload();
           // The width changed: the user's setting, or the width of one session (an alta command, or a drag that released it).
@@ -2812,6 +2815,8 @@ function App({ initialWindow = null }: { initialWindow?: WindowsCurrentResponse 
     }, () => creationAlive.current);
   }
   showHostSession.current = id => void openAutomationSession(id);
+  // The built-in browser of a session, beside it: the same tab when it is open, in this window or another one.
+  showBrowser.current = id => openFile(browserTab({ id, title: snapshot?.sessions.find(session => session.id === id)?.title }));
   // The bookmarks: the sessions and the messages the user marked to find them again. This window lists them and is told
   // when they change. It does not follow them itself: the tab, the rail of a timeline and the mark of a row do.
   const bookmarkActions = useRef<Pick<SessionBookmarkHost, "toggleMessage" | "go" | "unshown">>({ toggleMessage: () => { }, go: () => { }, unshown: () => { } });
@@ -3511,7 +3516,7 @@ function App({ initialWindow = null }: { initialWindow?: WindowsCurrentResponse 
     const unavailable = () => showToast({ message: t("The command /{name} is not available here.", { name: command.name }), intent: "warning", icon: "warning-sign", timeout: 6000 });
     if (!pluginCommandAvailable(command, target)) { unavailable(); return; }
     void pluginUi.invokeCommand({ expectedEpoch: pluginEpoch, commandId, projectId: target.projectId, sessionId: target.sessionId,
-      sessionBusy: target.busy, draftText: target.draftText, spaceId: shownSpace.current }, { timeoutMilliseconds: 8000 })
+      sessionBusy: target.busy, draftText: target.draftText, spaceId: shownSpace.current, argument: pane?.argument ?? null }, { timeoutMilliseconds: 8000 })
       .then(reply => { if (reply.status !== "started") unavailable(); }, unavailable);
   }
   const pluginKeys = useMemo(() => pluginKeymap(pluginContributed.commands), [pluginContributed]);
@@ -3543,7 +3548,7 @@ function App({ initialWindow = null }: { initialWindow?: WindowsCurrentResponse 
       return;
     }
     const composer = context.sessionId ? askPluginComposer("state", context.sessionId).state : null;
-    void pluginUi.invokeCommand({ expectedEpoch: pluginEpoch, commandId: button.commandId!, projectId: context.projectId, sessionId: context.sessionId,
+    void pluginUi.invokeCommand({ expectedEpoch: pluginEpoch, commandId: button.commandId!, projectId: context.projectId, sessionId: context.sessionId, argument: null,
       sessionBusy: composer?.busy ?? false, draftText: composer?.draftText ?? null, spaceId: shownSpace.current }, { timeoutMilliseconds: 8000 })
       .then(reply => { if (reply.status !== "started") unavailable(); }, unavailable);
   }
@@ -3764,7 +3769,7 @@ function App({ initialWindow = null }: { initialWindow?: WindowsCurrentResponse 
   function runLandingCardCommand(commandId: string, cardProjectId: string | null, label: string) {
     if (!pluginEpoch) return;
     const unavailable = () => landingUnavailable(label);
-    void pluginUi.invokeCommand({ expectedEpoch: pluginEpoch, commandId, projectId: cardProjectId, sessionId: null, sessionBusy: false, draftText: null, spaceId: shownSpace.current },
+    void pluginUi.invokeCommand({ expectedEpoch: pluginEpoch, commandId, projectId: cardProjectId, sessionId: null, sessionBusy: false, draftText: null, spaceId: shownSpace.current, argument: null },
       { timeoutMilliseconds: 8000 }).then(reply => { if (reply.status !== "started") unavailable(); }, unavailable);
   }
   const landingCommand = pluginContributed.commands.find(command => command.pluginKey === landingPluginKey && command.name === "landing");

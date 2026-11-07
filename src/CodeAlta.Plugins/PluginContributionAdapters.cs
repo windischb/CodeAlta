@@ -30,6 +30,9 @@ public sealed record PluginAdapterOperationOptions
     /// <summary>Gets the current run id, when known.</summary>
     public string? RunId { get; init; }
 
+    /// <summary>Gets what a command is run with: the argument of the alternative of a status item the user chose, or null.</summary>
+    public string? Argument { get; init; }
+
     /// <summary>Gets the active provider id, when known.</summary>
     public string? ProviderId { get; init; }
 
@@ -1322,6 +1325,7 @@ public sealed partial class PluginContributionAdapterService
             RunId = options?.RunId,
             ProviderId = options?.ProviderId,
             Model = options?.Model,
+            Argument = options?.Argument,
             CancellationToken = cancellationToken,
         };
 

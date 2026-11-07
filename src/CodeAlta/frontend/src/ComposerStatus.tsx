@@ -1,6 +1,6 @@
 import { useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Button } from "@blueprintjs/core";
+import { Button, Menu, MenuItem, Popover } from "@blueprintjs/core";
 import type { ComposerStatusRequest } from "#neoastra";
 import { AppIcon, type IconName } from "./AppIcon";
 import { PaneObservingContext } from "./hostReadsContext";
@@ -74,6 +74,20 @@ export function ComposerStatus({ epoch, projectId, sessionId, read, readMcp }: {
       : item.settingsPage
       ? <Button key={item.key} variant="minimal" size="small" className="composer-plugin-status-item" data-tone={item.tone} title={`${about}\n${t("Open settings")}`}
         onClick={() => settingsNavigation.open(item.settingsPage!)}>{content}</Button>
+      : item.commandId && item.alternatives.length > 0
+      // A split button: the item runs its command, the caret offers the other ways to run it.
+      ? <span key={item.key} className="composer-plugin-status-split" data-tone={item.tone}>
+        <Button variant="minimal" size="small" className="composer-plugin-status-item" data-tone={item.tone}
+          title={[about, plugins.contributions.commands.find(command => command.id === item.commandId)?.description].filter(Boolean).join("\n")}
+          onClick={() => plugins.run(item.commandId!, { projectId, sessionId })}>{content}</Button>
+        <Popover placement="top-end" minimal content={<Menu>{item.alternatives.map(alternative =>
+          <MenuItem key={`${alternative.commandId} ${alternative.argument ?? ""}`} text={alternative.label}
+            onClick={() => plugins.run(alternative.commandId, { projectId, sessionId, argument: alternative.argument })} />)}</Menu>}>
+          <Button variant="minimal" size="small" className="composer-plugin-status-item composer-plugin-status-caret" data-tone={item.tone}
+            aria-label={t("More ways to open {name}", { name: item.label })} title={t("More ways to open {name}", { name: item.label })}
+            icon={<AppIcon name="chevronDown" size={12} />} />
+        </Popover>
+      </span>
       : item.commandId
       ? <Button key={item.key} variant="minimal" size="small" className="composer-plugin-status-item" data-tone={item.tone}
         title={[about, plugins.contributions.commands.find(command => command.id === item.commandId)?.description].filter(Boolean).join("\n")}

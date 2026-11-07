@@ -934,6 +934,8 @@ public sealed class BrowserPluginTests
             HasUser = true, StartTimeout = BrowserStart, UserBrowserHeadless = true, PortOwners = new FakePortOwners(new() { [site.Port] = project, [other.Port] = folder.Path }),
         };
         host.WorkFolder = (_, _) => ValueTask.FromResult<string?>(project);
+        // A window with a browser built in: the item of a session that browses offers it among the others.
+        host.Embedded = _ => throw new InvalidOperationException("Not opened in this test.");
         await using var plugin = await StartAsync(host, new BrowserSettings { Browser = browser.Id, Headless = true });
 
         // Before: nothing under the prompt; the menu of the session opens the browser.
@@ -946,6 +948,10 @@ public sealed class BrowserPluginTests
         var start = session.Tabs.Single();
         Assert.IsTrue(start.Selected);
         Assert.AreEqual(BrowserPlugin.OpenCommand, plugin.StatusOf("s1")!.Command, "the item brings the browser to the front");
+        // Its menu offers the other browsers of this computer, the built-in one included, but the one it shows.
+        var alternatives = plugin.StatusOf("s1")!.Alternatives.ToList();
+        Assert.IsFalse(alternatives.Any(alternative => alternative.Argument == browser.Id), "the browser the item shows is not in its menu");
+        CollectionAssert.Contains(alternatives, new PluginStatusAlternative("CodeAlta (built-in)", BrowserPlugin.OpenCommand, BrowserPluginHost.EmbeddedId));
         using var http = new HttpClient();
         var startPage = await http.GetStringAsync(new Uri(start.Url));
         StringAssert.Contains(startPage, $"http://localhost:{site.Port}/", "the server of the project");

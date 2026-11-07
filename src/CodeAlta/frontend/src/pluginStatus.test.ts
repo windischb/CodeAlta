@@ -6,7 +6,7 @@ const mcp = { pluginId: "mcp", name: "mcp-status", label: "MCP", text: "2/3 · 1
 
 test("composer status accepts the items of the asked project", () => {
   assert.deepEqual(composerStatusItems({ status: "ok", projectId: "p1", items: [mcp] }, "p1"), [
-    { key: "mcp/mcp-status", pluginId: "mcp", label: "MCP", text: "2/3 · 1 unavailable · tools not loaded", tone: "warning", settingsPage: "mcp", commandId: null }]);
+    { key: "mcp/mcp-status", pluginId: "mcp", label: "MCP", text: "2/3 · 1 unavailable · tools not loaded", tone: "warning", settingsPage: "mcp", commandId: null, alternatives: [] }]);
   assert.deepEqual(composerStatusItems({ status: "ok", projectId: null, items: [] }, null), []);
   assert.deepEqual(composerStatusItems({ status: "ok", items: [] }, null), []);
   // An item can name a plugin command that it runs when clicked.
@@ -33,4 +33,16 @@ test("composer status compares what is shown", () => {
   assert.equal(sameComposerStatus([item], [{ ...item }]), true);
   assert.equal(sameComposerStatus([item], [{ ...item, text: "3/3 · tools not loaded" }]), false);
   assert.equal(sameComposerStatus([item], []), false);
+});
+
+test("composer status keeps the other ways to run an item, and leaves out the malformed ones", () => {
+  const browser = { pluginId: "plugins", name: "status-0", label: "Browser", text: "Open", tone: "muted", settingsPage: null, commandId: "browser/open",
+    alternatives: [{ label: "Firefox", commandId: "browser/open", argument: "firefox" }, { label: "CodeAlta (built-in)", commandId: "browser/open", argument: "codealta" },
+      { label: "", commandId: "browser/open", argument: "x" }, { label: "No command", commandId: "" }, "nonsense", { label: "Bad\u0001", commandId: "c" }] };
+  const [item] = composerStatusItems({ status: "ok", projectId: null, items: [browser] }, null)!;
+  assert.deepEqual(item.alternatives, [{ label: "Firefox", commandId: "browser/open", argument: "firefox" }, { label: "CodeAlta (built-in)", commandId: "browser/open", argument: "codealta" }]);
+  const [same] = composerStatusItems({ status: "ok", projectId: null, items: [browser] }, null)!;
+  assert.equal(sameComposerStatus([item], [same]), true);
+  const [fewer] = composerStatusItems({ status: "ok", projectId: null, items: [{ ...browser, alternatives: browser.alternatives.slice(1) }] }, null)!;
+  assert.equal(sameComposerStatus([item], [fewer]), false, "Another menu is another item.");
 });
